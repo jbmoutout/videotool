@@ -8,6 +8,7 @@ import typer
 from rich.console import Console
 
 from vodtool import __version__
+from vodtool.commands.ingest import ingest_video
 
 app = typer.Typer(
     name="vodtool",
@@ -47,9 +48,9 @@ def ingest(
 
     Creates a project folder with extracted audio and metadata.
     """
-    console.print("[yellow]Not implemented yet: ingest command[/yellow]")
-    console.print(f"Would ingest: {input_video_path}")
-    raise typer.Exit(code=1)
+    project_dir = ingest_video(input_video_path)
+    if project_dir is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
