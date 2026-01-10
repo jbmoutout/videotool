@@ -148,7 +148,7 @@ vodtool transcribe projects/<project-id> --language es
 - `embed` - Compute embeddings for chunks
 - `segment-topics` - Detect topic boundaries
 - `topics` - Cluster segments into topics
-- `label-topics` - Generate topic labels
+- `label-topics` - Generate topic labels (with duration and talk-time metrics)
 - `cutplan` - Create editing plan for a topic
 - `export` - Generate final video with preview
 
@@ -157,6 +157,27 @@ vodtool transcribe projects/<project-id> --language es
 - `diarize-review` - Review speaker statistics and mark background speakers
 
 When diarization is used, topic analysis automatically filters to main speakers only, excluding background audio and other speakers.
+
+### Debug & Inspection
+- `show-topics` - Display chronological timeline of topic spans, showing when topics appear and return
+- `explain-chunk` - Explain why a chunk belongs to its topic (shows nearest neighbors by similarity)
+- `inspect-topic` - Deep inspection of a specific topic with statistics and representative chunks
+
+```bash
+# View topic timeline (MISC topics hidden by default)
+vodtool show-topics projects/<project-id>
+vodtool show-topics projects/<project-id> --include-misc
+
+# Understand why a chunk was assigned to its topic
+vodtool explain-chunk projects/<project-id> chunk_0042
+
+# Deep dive into a specific topic
+vodtool inspect-topic projects/<project-id> topic_0000
+```
+
+### MISC Topics
+
+Short or singleton topics (< 90s duration or < 3 chunks) are automatically categorized as MISC and hidden by default. This keeps the output focused on substantial topics. Use `--include-misc` with `show-topics` to view them.
 
 ## Requirements
 

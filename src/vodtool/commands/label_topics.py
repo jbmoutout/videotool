@@ -1,4 +1,4 @@
-"""Topic labeling command for vodtool using TF-IDF keyword extraction."""
+"""Topic labeling command for vodtool using representative quotes."""
 
 import json
 import logging
@@ -6,31 +6,43 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 from rich.console import Console
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 console = Console()
 logger = logging.getLogger("vodtool")
 
 
-def load_chunk_texts(db_path: Path, chunk_ids: list[str]) -> list[str]:
+def format_duration(seconds: float) -> str:
+    """Format seconds as human-readable duration."""
+    minutes = int(seconds // 60)
+    if minutes >= 60:
+        hours = minutes // 60
+        mins = minutes % 60
+        return f"{hours}h {mins}min" if mins else f"{hours}h"
+    return f"{minutes} min"
+
+
+def load_chunk_data(db_path: Path, chunk_ids: list[str]) -> list[dict]:
     """
-    Load text for specific chunks from database.
+    Load chunk data from database.
 
     Args:
         db_path: Path to embeddings.sqlite
         chunk_ids: List of chunk IDs to load
 
     Returns:
-        List of text strings in same order as chunk_ids
+        List of chunk dicts with id, text, start, end, duration
     """
+    if not chunk_ids:
+        return []
+
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Build query with placeholders
     placeholders = ",".join("?" * len(chunk_ids))
     query = f"""
-        SELECT chunk_id, text
+        SELECT chunk_id, text, start, end
         FROM chunks
         WHERE chunk_id IN ({placeholders})
     """
@@ -39,93 +51,140 @@ def load_chunk_texts(db_path: Path, chunk_ids: list[str]) -> list[str]:
     rows = cursor.fetchall()
     conn.close()
 
-    # Build dict for ordered retrieval
-    text_dict = {row[0]: row[1] for row in rows}
+    chunk_dict = {
+        row[0]: {
+            "chunk_id": row[0],
+            "text": row[1],
+            "start": row[2],
+            "end": row[3],
+            "duration": row[3] - row[2],
+        }
+        for row in rows
+    }
 
-    # Return in same order as chunk_ids
-    return [text_dict[cid] for cid in chunk_ids]
+    return [chunk_dict[cid] for cid in chunk_ids if cid in chunk_dict]
 
 
-def extract_tfidf_keywords(documents: list[str], n_keywords: int = 5) -> list[list[str]]:
+def load_embeddings(db_path: Path, chunk_ids: list[str]) -> dict[str, np.ndarray]:
     """
-    Extract top TF-IDF keywords for each document.
+    Load embeddings for chunks.
 
     Args:
-        documents: List of text documents (one per topic)
-        n_keywords: Number of top keywords to extract per document
+        db_path: Path to embeddings.sqlite
+        chunk_ids: List of chunk IDs
 
     Returns:
-        List of keyword lists (one list per document)
+        Dict mapping chunk_id to embedding vector
     """
-    if not documents:
-        return []
+    if not chunk_ids:
+        return {}
 
-    # Create TF-IDF vectorizer
-    vectorizer = TfidfVectorizer(
-        max_features=1000,
-        stop_words="english",
-        ngram_range=(1, 2),  # Support unigrams and bigrams
-        min_df=1,  # Allow rare terms (small corpus)
-    )
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-    try:
-        tfidf_matrix = vectorizer.fit_transform(documents)
-    except ValueError as e:
-        logger.warning(f"TF-IDF extraction failed: {e}")
-        return [[] for _ in documents]
-
-    feature_names = vectorizer.get_feature_names_out()
-
-    # Extract top keywords for each document
-    keywords_per_doc = []
-
-    for doc_idx in range(len(documents)):
-        # Get TF-IDF scores for this document
-        doc_vector = tfidf_matrix[doc_idx].toarray()[0]
-
-        # Get indices of top scores
-        top_indices = doc_vector.argsort()[-n_keywords:][::-1]
-
-        # Get corresponding keywords
-        keywords = [feature_names[i] for i in top_indices if doc_vector[i] > 0]
-
-        keywords_per_doc.append(keywords)
-
-    return keywords_per_doc
-
-
-def generate_label_from_keywords(keywords: list[str]) -> str:
+    placeholders = ",".join("?" * len(chunk_ids))
+    query = f"""
+        SELECT chunk_id, vector
+        FROM embeddings
+        WHERE chunk_id IN ({placeholders})
     """
-    Generate a readable label from keywords.
+
+    cursor.execute(query, chunk_ids)
+    rows = cursor.fetchall()
+    conn.close()
+
+    embeddings = {}
+    for chunk_id, vector_bytes in rows:
+        embeddings[chunk_id] = np.frombuffer(vector_bytes, dtype=np.float32)
+
+    return embeddings
+
+
+def find_representative_chunks(
+    chunks: list[dict],
+    embeddings: dict[str, np.ndarray],
+    n: int = 3,
+) -> list[dict]:
+    """
+    Find the most representative chunks based on centrality.
 
     Args:
-        keywords: List of keywords
+        chunks: List of chunk dicts
+        embeddings: Dict of chunk_id to embedding vector
+        n: Number of representative chunks to return
 
     Returns:
-        Formatted label string
+        List of most representative chunk dicts
     """
-    if not keywords:
-        return "Unlabeled Topic"
+    if len(chunks) <= n:
+        return chunks
 
-    # Take top 3-6 keywords
-    selected = keywords[:6]
+    # Compute centrality score for each chunk (average similarity to all others)
+    centrality_scores = []
 
-    # Capitalize first letter of each word
-    selected = [kw.title() for kw in selected]
+    for chunk in chunks:
+        chunk_id = chunk["chunk_id"]
+        if chunk_id not in embeddings:
+            centrality_scores.append((chunk, 0.0))
+            continue
 
-    # Join with spaces
-    label = " ".join(selected)
+        vec = embeddings[chunk_id]
+        similarities = []
 
-    # Truncate if too long
-    if len(label) > 60:
-        label = label[:57] + "..."
+        for other_chunk in chunks:
+            other_id = other_chunk["chunk_id"]
+            if other_id != chunk_id and other_id in embeddings:
+                other_vec = embeddings[other_id]
+                norm_product = np.linalg.norm(vec) * np.linalg.norm(other_vec)
+                if norm_product > 0:
+                    sim = np.dot(vec, other_vec) / norm_product
+                    similarities.append(sim)
 
-    return label
+        avg_similarity = np.mean(similarities) if similarities else 0.0
+        centrality_scores.append((chunk, avg_similarity))
+
+    # Sort by centrality score (descending)
+    centrality_scores.sort(key=lambda x: x[1], reverse=True)
+
+    return [chunk for chunk, _ in centrality_scores[:n]]
+
+
+def extract_quote(text: str, max_length: int = 80) -> str:
+    """
+    Extract a clean quote from chunk text.
+
+    Args:
+        text: Raw chunk text
+        max_length: Maximum length of quote
+
+    Returns:
+        Cleaned quote string
+    """
+    # Clean up the text
+    text = text.strip()
+
+    # Try to find a sentence boundary
+    if len(text) <= max_length:
+        return text
+
+    # Look for sentence end within limit
+    for punct in [". ", "! ", "? "]:
+        idx = text[:max_length].rfind(punct)
+        if idx > 20:  # At least 20 chars for a meaningful quote
+            return text[: idx + 1]
+
+    # Fall back to word boundary
+    if len(text) > max_length:
+        idx = text[:max_length].rfind(" ")
+        if idx > 20:
+            return text[:idx] + "..."
+
+    return text[:max_length] + "..."
 
 
 def label_topics_command(project_path: Path, force: bool = False) -> Optional[Path]:
     """
-    Generate human-readable labels for topics using TF-IDF.
+    Generate topic labels with duration and representative quotes.
 
     Args:
         project_path: Path to the project directory
@@ -150,7 +209,7 @@ def label_topics_command(project_path: Path, force: bool = False) -> Optional[Pa
         console.print("Run 'vodtool topics' first to create topic map.")
         return None
 
-    # Check for embeddings database (has chunk texts)
+    # Check for embeddings database
     db_path = project_path / "embeddings.sqlite"
     if not db_path.exists():
         console.print(f"[red]Error: Embeddings database not found: {db_path}[/red]")
@@ -178,40 +237,10 @@ def label_topics_command(project_path: Path, force: bool = False) -> Optional[Pa
     if labeled_path.exists() and not force:
         console.print(f"[yellow]Labeled topic map already exists: {labeled_path}[/yellow]")
         console.print("Use --force to regenerate labels.")
+        return labeled_path
 
-        # Load existing labels to preserve manual edits
-        try:
-            with labeled_path.open(encoding="utf-8") as f:
-                existing_topics = json.load(f)
-
-            # Merge: keep existing labels, add new topics
-            existing_ids = {t["topic_id"] for t in existing_topics}
-
-            for topic in topics:
-                if topic["topic_id"] not in existing_ids:
-                    console.print(f"[cyan]Found new topic: {topic['topic_id']}[/cyan]")
-                    existing_topics.append(topic)
-
-            if len(existing_topics) == len(topics):
-                console.print("[green]All topics already labeled. No changes needed.[/green]")
-                return labeled_path
-
-            # Save merged version
-            with labeled_path.open("w", encoding="utf-8") as f:
-                json.dump(existing_topics, f, indent=2, ensure_ascii=False)
-
-            console.print("[green]Added labels for new topics[/green]")
-            return labeled_path
-
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not load existing labels: {e}[/yellow]")
-            console.print("Regenerating all labels...")
-
-    # Collect text for each topic
-    console.print("[cyan]Loading topic texts...[/cyan]")
-
-    topic_documents = []
-    topic_ids = []
+    # Process each topic
+    console.print("[cyan]Extracting representative quotes...[/cyan]")
 
     for topic in topics:
         # Collect all chunk IDs for this topic
@@ -223,35 +252,41 @@ def label_topics_command(project_path: Path, force: bool = False) -> Optional[Pa
         seen = set()
         chunk_ids = [cid for cid in chunk_ids if not (cid in seen or seen.add(cid))]
 
-        # Load texts
-        try:
-            texts = load_chunk_texts(db_path, chunk_ids)
-            document = " ".join(texts)
-            topic_documents.append(document)
-            topic_ids.append(topic["topic_id"])
-        except Exception as e:
-            logger.warning(f"Could not load text for topic {topic['topic_id']}: {e}")
-            topic_documents.append("")
-            topic_ids.append(topic["topic_id"])
+        # Load chunk data and embeddings
+        chunks = load_chunk_data(db_path, chunk_ids)
+        embeddings = load_embeddings(db_path, chunk_ids)
 
-    logger.info(f"Loaded text for {len(topic_documents)} topics")
+        # Calculate durations:
+        # - span_duration: sum of span durations (user expectation for "topic length")
+        # - talk_time: sum of individual chunk durations (actual content time)
+        span_duration = sum(span["end"] - span["start"] for span in topic["spans"])
+        talk_time = sum(chunk["duration"] for chunk in chunks)
 
-    # Extract keywords using TF-IDF
-    console.print("[cyan]Extracting keywords with TF-IDF...[/cyan]")
+        topic["duration_seconds"] = span_duration
+        topic["duration_label"] = format_duration(span_duration)
+        topic["talk_time_seconds"] = talk_time
+        topic["talk_time_label"] = format_duration(talk_time)
 
-    try:
-        keywords_per_topic = extract_tfidf_keywords(topic_documents, n_keywords=6)
-    except Exception as e:
-        console.print(f"[red]Error extracting keywords: {e}[/red]")
-        return None
+        # Find representative chunks
+        representative = find_representative_chunks(chunks, embeddings, n=3)
 
-    # Generate labels
-    console.print("[cyan]Generating labels...[/cyan]")
+        # Extract quotes
+        quotes = [extract_quote(chunk["text"]) for chunk in representative]
+        topic["quotes"] = quotes
 
-    for topic, keywords in zip(topics, keywords_per_topic):
-        label = generate_label_from_keywords(keywords)
-        topic["label"] = label
-        logger.info(f"{topic['topic_id']}: {label} (keywords: {keywords})")
+        # Create a simple label (Topic N - Duration)
+        topic_num = int(topic["topic_id"].split("_")[1]) + 1
+        topic["label"] = f"Topic {topic_num}"
+
+        # Mark as MISC if duration < 90s OR chunks < 3
+        total_chunks = len(chunk_ids)
+        topic["is_misc"] = span_duration < 90 or total_chunks < 3
+        topic["chunk_count"] = total_chunks
+
+        logger.info(
+            f"{topic['topic_id']}: {topic['duration_label']}, "
+            f"{len(quotes)} quotes, misc={topic['is_misc']}"
+        )
 
     # Save labeled topic map
     try:
@@ -262,13 +297,29 @@ def label_topics_command(project_path: Path, force: bool = False) -> Optional[Pa
         console.print(f"[red]Error saving labeled topic map: {e}[/red]")
         return None
 
-    # Print summary
+    # Print summary with new format
     console.print("\n[green]✓ Topic labeling complete![/green]")
-    console.print(f"[bold]Topics labeled:[/bold] {len(topics)}")
-    console.print(f"[bold]Output:[/bold] {labeled_path}")
-    console.print("\n[bold]Topic Labels:[/bold]")
+    console.print(f"[bold]Output:[/bold] {labeled_path}\n")
 
-    for topic in topics:
-        console.print(f"  {topic['topic_id']}: {topic['label']}")
+    # Separate MISC and regular topics
+    regular_topics = [t for t in topics if not t.get("is_misc", False)]
+    misc_topics = [t for t in topics if t.get("is_misc", False)]
+
+    for topic in regular_topics:
+        talk_time = topic.get("talk_time_label", "")
+        duration_info = f"[bold]{topic['duration_label']}[/bold]"
+        if talk_time and talk_time != topic["duration_label"]:
+            duration_info += f" [dim](talk-time: {talk_time})[/dim]"
+
+        console.print(f"[bold cyan]{topic['label']}[/bold cyan] — {duration_info}")
+        for quote in topic.get("quotes", []):
+            console.print(f'  [dim]•[/dim] "{quote}"')
+        console.print()
+
+    if misc_topics:
+        console.print(
+            f"[dim]+ {len(misc_topics)} MISC topic(s) hidden " f"(< 90s or < 3 chunks)[/dim]"
+        )
+        console.print("[dim]  Use 'vodtool show-topics --include-misc' to view[/dim]\n")
 
     return labeled_path
