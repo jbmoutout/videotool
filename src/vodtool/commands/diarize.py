@@ -14,8 +14,10 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
-# Allow loading older PyTorch models (required for pyannote)
-torch.serialization.add_safe_globals([torch.torch_version.TorchVersion])
+# Disable weights_only for torch.load (required for pyannote models)
+# PyTorch 2.6+ changed default to weights_only=True for security
+# Pyannote models are trusted and need this disabled
+os.environ["TORCH_SERIALIZATION_WEIGHTS_ONLY"] = "0"
 
 
 def diarize_command(
