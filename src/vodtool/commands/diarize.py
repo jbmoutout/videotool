@@ -14,10 +14,19 @@ logger = logging.getLogger(__name__)
 # Load environment variables from .env file
 load_dotenv()
 
-# Disable weights_only for torch.load (required for pyannote models)
-# PyTorch 2.6+ changed default to weights_only=True for security
-# Pyannote models are trusted and need this disabled
-os.environ["TORCH_SERIALIZATION_WEIGHTS_ONLY"] = "0"
+# Patch torch.load to use weights_only=False for pyannote compatibility
+# PyTorch 2.6+ changed default to weights_only=True which breaks pyannote
+_original_torch_load = torch.load
+
+
+def _patched_torch_load(*args, **kwargs):
+    """Wrapper for torch.load that defaults to weights_only=False."""
+    if "weights_only" not in kwargs:
+        kwargs["weights_only"] = False
+    return _original_torch_load(*args, **kwargs)
+
+
+torch.load = _patched_torch_load
 
 
 def diarize_command(
