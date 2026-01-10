@@ -11,9 +11,7 @@ console = Console()
 logger = logging.getLogger("vodtool")
 
 
-def merge_nearby_spans(
-    spans: list[dict], gap_threshold: float = 15.0
-) -> list[dict]:
+def merge_nearby_spans(spans: list[dict], gap_threshold: float = 15.0) -> list[dict]:
     """
     Merge spans that are separated by less than gap_threshold seconds.
 
@@ -51,7 +49,10 @@ def merge_nearby_spans(
 
 
 def compute_drop_spans(
-    keep_spans: list[dict], total_duration: float, all_topics: list[dict], selected_topic_id: str
+    keep_spans: list[dict],
+    total_duration: float,
+    all_topics: list[dict],
+    selected_topic_id: str,
 ) -> list[dict]:
     """
     Compute drop spans as complement of keep spans.
@@ -67,25 +68,15 @@ def compute_drop_spans(
     """
     if not keep_spans:
         # Drop everything
-        return [{
-            "start": 0.0,
-            "end": total_duration,
-            "reason": "not_selected_topic"
-        }]
+        return [{"start": 0.0, "end": total_duration, "reason": "not_selected_topic"}]
 
     drop_spans = []
 
     # Drop span before first keep
     if keep_spans[0]["start"] > 0.0:
         # Identify which topic owns this span
-        reason = identify_span_topic(
-            0.0, keep_spans[0]["start"], all_topics, selected_topic_id
-        )
-        drop_spans.append({
-            "start": 0.0,
-            "end": keep_spans[0]["start"],
-            "reason": reason
-        })
+        reason = identify_span_topic(0.0, keep_spans[0]["start"], all_topics, selected_topic_id)
+        drop_spans.append({"start": 0.0, "end": keep_spans[0]["start"], "reason": reason})
 
     # Drop spans between keeps
     for i in range(len(keep_spans) - 1):
@@ -93,31 +84,27 @@ def compute_drop_spans(
         gap_end = keep_spans[i + 1]["start"]
 
         if gap_end > gap_start:
-            reason = identify_span_topic(
-                gap_start, gap_end, all_topics, selected_topic_id
-            )
-            drop_spans.append({
-                "start": gap_start,
-                "end": gap_end,
-                "reason": reason
-            })
+            reason = identify_span_topic(gap_start, gap_end, all_topics, selected_topic_id)
+            drop_spans.append({"start": gap_start, "end": gap_end, "reason": reason})
 
     # Drop span after last keep
     if keep_spans[-1]["end"] < total_duration:
         reason = identify_span_topic(
-            keep_spans[-1]["end"], total_duration, all_topics, selected_topic_id
+            keep_spans[-1]["end"],
+            total_duration,
+            all_topics,
+            selected_topic_id,
         )
-        drop_spans.append({
-            "start": keep_spans[-1]["end"],
-            "end": total_duration,
-            "reason": reason
-        })
+        drop_spans.append({"start": keep_spans[-1]["end"], "end": total_duration, "reason": reason})
 
     return drop_spans
 
 
 def identify_span_topic(
-    start: float, end: float, all_topics: list[dict], selected_topic_id: str
+    start: float,
+    end: float,
+    all_topics: list[dict],
+    selected_topic_id: str,
 ) -> str:
     """
     Identify which topic owns a time span.
@@ -151,13 +138,10 @@ def identify_span_topic(
 
     if best_topic_id:
         return f"other_topic:{best_topic_id}"
-    else:
-        return "other_topic:unknown"
+    return "other_topic:unknown"
 
 
-def generate_cutplan(
-    project_path: Path, topic: str
-) -> Optional[Path]:
+def generate_cutplan(project_path: Path, topic: str) -> Optional[Path]:
     """
     Generate a cut plan for extracting a specific topic.
 
@@ -170,9 +154,7 @@ def generate_cutplan(
     """
     # Validate project directory
     if not project_path.exists():
-        console.print(
-            f"[red]Error: Project directory not found: {project_path}[/red]"
-        )
+        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
         return None
 
     if not project_path.is_dir():
@@ -185,9 +167,7 @@ def generate_cutplan(
         topic_map_path = project_path / "topic_map.json"
 
     if not topic_map_path.exists():
-        console.print(
-            f"[red]Error: Topic map not found: {topic_map_path}[/red]"
-        )
+        console.print(f"[red]Error: Topic map not found: {topic_map_path}[/red]")
         console.print("Run 'vodtool topics' first to create topic map.")
         return None
 
@@ -198,10 +178,10 @@ def generate_cutplan(
         return None
 
     # Load topic map
-    console.print(f"[cyan]Loading topic map...[/cyan]")
+    console.print("[cyan]Loading topic map...[/cyan]")
 
     try:
-        with open(topic_map_path, "r", encoding="utf-8") as f:
+        with topic_map_path.open(encoding="utf-8") as f:
             topics = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading topic map: {e}[/red]")
@@ -213,7 +193,7 @@ def generate_cutplan(
 
     # Load metadata
     try:
-        with open(meta_path, "r", encoding="utf-8") as f:
+        with meta_path.open(encoding="utf-8") as f:
             metadata = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading metadata: {e}[/red]")
@@ -256,13 +236,13 @@ def generate_cutplan(
     keep_spans = [span.copy() for span in selected_topic["spans"]]
 
     # Merge nearby spans
-    console.print(f"[cyan]Merging nearby spans (gap threshold: 15s)...[/cyan]")
+    console.print("[cyan]Merging nearby spans (gap threshold: 15s)...[/cyan]")
     keep_spans = merge_nearby_spans(keep_spans, gap_threshold=15.0)
 
     logger.info(f"Keep spans after merging: {len(keep_spans)}")
 
     # Compute drop spans
-    console.print(f"[cyan]Computing drop spans...[/cyan]")
+    console.print("[cyan]Computing drop spans...[/cyan]")
     drop_spans = compute_drop_spans(keep_spans, total_duration, topics, topic)
 
     # Calculate total keep time
@@ -272,20 +252,18 @@ def generate_cutplan(
     cutplan = {
         "selected_topic_id": topic,
         "selected_topic_label": topic_label,
-        "keep_spans": [
-            {"start": s["start"], "end": s["end"]} for s in keep_spans
-        ],
+        "keep_spans": [{"start": s["start"], "end": s["end"]} for s in keep_spans],
         "drop_spans": drop_spans,
         "total_keep_seconds": total_keep,
         "total_drop_seconds": total_duration - total_keep,
-        "compression_ratio": total_keep / total_duration if total_duration > 0 else 0.0
+        "compression_ratio": total_keep / total_duration if total_duration > 0 else 0.0,
     }
 
     # Save cutplan.json
     output_path = project_path / "cutplan.json"
 
     try:
-        with open(output_path, "w", encoding="utf-8") as f:
+        with output_path.open("w", encoding="utf-8") as f:
             json.dump(cutplan, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved cutplan.json: {output_path}")
     except Exception as e:
@@ -297,35 +275,27 @@ def generate_cutplan(
     coverage = total_keep + total_drop
 
     if abs(coverage - total_duration) > 1.0:  # Allow 1 second tolerance
-        console.print(
-            f"[yellow]Warning: Coverage mismatch[/yellow]"
-        )
+        console.print("[yellow]Warning: Coverage mismatch[/yellow]")
         logger.warning(
-            f"Keep: {total_keep:.1f}s, Drop: {total_drop:.1f}s, "
-            f"Total: {total_duration:.1f}s"
+            f"Keep: {total_keep:.1f}s, Drop: {total_drop:.1f}s, Total: {total_duration:.1f}s",
         )
 
     # Print summary
-    console.print(f"\n[green]✓ Cut plan generated![/green]")
+    console.print("\n[green]✓ Cut plan generated![/green]")
     console.print(f"[bold]Topic:[/bold] {topic}")
     if topic_label:
         console.print(f"[bold]Label:[/bold] {topic_label}")
     console.print(f"[bold]Keep spans:[/bold] {len(keep_spans)}")
     console.print(f"[bold]Drop spans:[/bold] {len(drop_spans)}")
-    console.print(
-        f"[bold]Total keep:[/bold] {total_keep:.1f}s ({total_keep/60:.1f} min)"
-    )
+    console.print(f"[bold]Total keep:[/bold] {total_keep:.1f}s ({total_keep/60:.1f} min)")
     console.print(
         f"[bold]Total drop:[/bold] {total_duration - total_keep:.1f}s "
-        f"({(total_duration - total_keep)/60:.1f} min)"
+        f"({(total_duration - total_keep)/60:.1f} min)",
     )
-    console.print(
-        f"[bold]Compression:[/bold] {cutplan['compression_ratio']*100:.1f}%"
-    )
+    console.print(f"[bold]Compression:[/bold] {cutplan['compression_ratio']*100:.1f}%")
     console.print(f"[bold]Output:[/bold] {output_path}")
     console.print(
-        "\n[yellow]Note: This is a suggest-only plan. "
-        "No files have been modified.[/yellow]"
+        "\n[yellow]Note: This is a suggest-only plan. No files have been modified.[/yellow]",
     )
 
     return output_path

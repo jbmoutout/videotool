@@ -8,15 +8,15 @@ import typer
 from rich.console import Console
 
 from vodtool import __version__
-from vodtool.commands.ingest import ingest_video
-from vodtool.commands.transcribe import transcribe_audio
 from vodtool.commands.chunks import create_chunks
+from vodtool.commands.cutplan import generate_cutplan
 from vodtool.commands.embed import embed_chunks
+from vodtool.commands.export import export_video
+from vodtool.commands.ingest import ingest_video
+from vodtool.commands.label_topics import label_topics_command
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.topics import cluster_topics
-from vodtool.commands.label_topics import label_topics_command
-from vodtool.commands.cutplan import generate_cutplan
-from vodtool.commands.export import export_video
+from vodtool.commands.transcribe import transcribe_audio
 
 app = typer.Typer(
     name="vodtool",
@@ -37,7 +37,11 @@ def version_callback(value: bool):
 @app.callback()
 def main(
     version: Optional[bool] = typer.Option(
-        None, "--version", "-v", callback=version_callback, help="Show version and exit"
+        None,
+        "--version",
+        "-v",
+        callback=version_callback,
+        help="Show version and exit",
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose logging"),
 ):

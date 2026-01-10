@@ -23,7 +23,7 @@ def split_into_sentences(text: str) -> list[str]:
         List of sentences
     """
     # Split on sentence-ending punctuation followed by space or end of string
-    sentences = re.split(r'([.!?]+(?:\s+|$))', text)
+    sentences = re.split(r"([.!?]+(?:\s+|$))", text)
 
     # Reconstruct sentences with their punctuation
     result = []
@@ -80,11 +80,13 @@ def create_semantic_chunks(
             sentence_duration = (len(sentence) / total_chars) * seg_duration
             sentence_end = current_time + sentence_duration
 
-            sentence_units.append({
-                "start": current_time,
-                "end": sentence_end,
-                "text": sentence,
-            })
+            sentence_units.append(
+                {
+                    "start": current_time,
+                    "end": sentence_end,
+                    "text": sentence,
+                },
+            )
 
             current_time = sentence_end
 
@@ -101,7 +103,6 @@ def create_semantic_chunks(
 
     for unit in sentence_units[1:]:
         current_duration = current_chunk["end"] - current_chunk["start"]
-        unit_duration = unit["end"] - unit["start"]
         combined_duration = unit["end"] - current_chunk["start"]
 
         # Merge if under min_duration OR if adding this unit keeps us under max_duration
@@ -154,9 +155,9 @@ def create_chunks(project_path: Path) -> Optional[Path]:
         return None
 
     # Load transcript
-    console.print(f"[cyan]Loading transcript...[/cyan]")
+    console.print("[cyan]Loading transcript...[/cyan]")
     try:
-        with open(transcript_path, "r", encoding="utf-8") as f:
+        with transcript_path.open(encoding="utf-8") as f:
             transcript_data = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading transcript: {e}[/red]")
@@ -170,7 +171,7 @@ def create_chunks(project_path: Path) -> Optional[Path]:
     logger.info(f"Loaded {len(segments)} segments from transcript")
 
     # Create chunks
-    console.print(f"[cyan]Creating semantic chunks (5-25 seconds)...[/cyan]")
+    console.print("[cyan]Creating semantic chunks (5-25 seconds)...[/cyan]")
     try:
         chunks = create_semantic_chunks(segments)
     except Exception as e:
@@ -185,10 +186,10 @@ def create_chunks(project_path: Path) -> Optional[Path]:
 
     # Save chunks.json
     chunks_path = project_path / "chunks.json"
-    console.print(f"[cyan]Saving chunks...[/cyan]")
+    console.print("[cyan]Saving chunks...[/cyan]")
 
     try:
-        with open(chunks_path, "w", encoding="utf-8") as f:
+        with chunks_path.open("w", encoding="utf-8") as f:
             json.dump(chunks, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved chunks.json: {chunks_path}")
     except Exception as e:
@@ -199,9 +200,11 @@ def create_chunks(project_path: Path) -> Optional[Path]:
     total_duration = chunks[-1]["end"] - chunks[0]["start"]
     avg_duration = total_duration / len(chunks)
 
-    console.print(f"\n[green]✓ Chunking complete![/green]")
+    console.print("\n[green]✓ Chunking complete![/green]")
     console.print(f"[bold]Chunks:[/bold] {len(chunks)}")
-    console.print(f"[bold]Total duration:[/bold] {total_duration:.1f}s ({total_duration/60:.1f} min)")
+    console.print(
+        f"[bold]Total duration:[/bold] {total_duration:.1f}s ({total_duration/60:.1f} min)",
+    )
     console.print(f"[bold]Average chunk:[/bold] {avg_duration:.1f}s")
     console.print(f"[bold]Output:[/bold] {chunks_path}")
 

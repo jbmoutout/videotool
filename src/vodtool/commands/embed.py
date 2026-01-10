@@ -65,17 +65,20 @@ def init_embeddings_db(db_path: Path, model_name: str) -> sqlite3.Connection:
     cursor = conn.cursor()
 
     # Create chunks table
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS chunks (
             chunk_id TEXT PRIMARY KEY,
             text TEXT NOT NULL,
             start REAL NOT NULL,
             end REAL NOT NULL
         )
-    """)
+    """,
+    )
 
     # Create embeddings table
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS embeddings (
             chunk_id TEXT NOT NULL,
             model TEXT NOT NULL,
@@ -83,21 +86,22 @@ def init_embeddings_db(db_path: Path, model_name: str) -> sqlite3.Connection:
             PRIMARY KEY (chunk_id, model),
             FOREIGN KEY (chunk_id) REFERENCES chunks(chunk_id)
         )
-    """)
+    """,
+    )
 
     # Create index for faster lookups
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_embeddings_model
         ON embeddings(model)
-    """)
+    """,
+    )
 
     conn.commit()
     return conn
 
 
-def get_existing_embeddings(
-    conn: sqlite3.Connection, model_name: str
-) -> set[str]:
+def get_existing_embeddings(conn: sqlite3.Connection, model_name: str) -> set[str]:
     """
     Get set of chunk IDs that already have embeddings for this model.
 
@@ -109,14 +113,13 @@ def get_existing_embeddings(
         Set of chunk IDs with existing embeddings
     """
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT chunk_id FROM embeddings WHERE model = ?", (model_name,)
-    )
+    cursor.execute("SELECT chunk_id FROM embeddings WHERE model = ?", (model_name,))
     return {row[0] for row in cursor.fetchall()}
 
 
 def embed_chunks(
-    project_path: Path, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    project_path: Path,
+    model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
 ) -> Optional[Path]:
     """
     Generate embeddings for transcript chunks using sentence-transformers.
@@ -130,18 +133,14 @@ def embed_chunks(
     """
     # Check sentence-transformers availability
     if not check_sentence_transformers_available():
-        console.print(
-            "[red]Error: sentence-transformers is not installed[/red]"
-        )
+        console.print("[red]Error: sentence-transformers is not installed[/red]")
         console.print("\nPlease install sentence-transformers:")
         console.print("  pip install -U sentence-transformers")
         return None
 
     # Validate project directory
     if not project_path.exists():
-        console.print(
-            f"[red]Error: Project directory not found: {project_path}[/red]"
-        )
+        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
         return None
 
     if not project_path.is_dir():
@@ -156,9 +155,9 @@ def embed_chunks(
         return None
 
     # Load chunks
-    console.print(f"[cyan]Loading chunks...[/cyan]")
+    console.print("[cyan]Loading chunks...[/cyan]")
     try:
-        with open(chunks_path, "r", encoding="utf-8") as f:
+        with chunks_path.open(encoding="utf-8") as f:
             chunks = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading chunks: {e}[/red]")
@@ -172,7 +171,7 @@ def embed_chunks(
 
     # Initialize database
     db_path = project_path / "embeddings.sqlite"
-    console.print(f"[cyan]Initializing embeddings database...[/cyan]")
+    console.print("[cyan]Initializing embeddings database...[/cyan]")
 
     try:
         conn = init_embeddings_db(db_path, model_name)
@@ -182,30 +181,20 @@ def embed_chunks(
 
     # Get existing embeddings to skip
     existing_chunk_ids = get_existing_embeddings(conn, model_name)
-    logger.info(
-        f"Found {len(existing_chunk_ids)} existing embeddings for model {model_name}"
-    )
+    logger.info(f"Found {len(existing_chunk_ids)} existing embeddings for model {model_name}")
 
     # Filter chunks that need embedding
-    chunks_to_embed = [
-        c for c in chunks if c["id"] not in existing_chunk_ids
-    ]
+    chunks_to_embed = [c for c in chunks if c["id"] not in existing_chunk_ids]
 
     if not chunks_to_embed:
-        console.print(
-            "[green]All chunks already have embeddings for this model[/green]"
-        )
+        console.print("[green]All chunks already have embeddings for this model[/green]")
         console.print(f"[bold]Database:[/bold] {db_path}")
         conn.close()
         return db_path
 
-    console.print(
-        f"[cyan]Computing embeddings for {len(chunks_to_embed)} chunks...[/cyan]"
-    )
+    console.print(f"[cyan]Computing embeddings for {len(chunks_to_embed)} chunks...[/cyan]")
     console.print(f"[dim]Model: {model_name}[/dim]")
-    console.print(
-        f"[dim]Skipping {len(existing_chunk_ids)} existing embeddings[/dim]"
-    )
+    console.print(f"[dim]Skipping {len(existing_chunk_ids)} existing embeddings[/dim]")
 
     # Import sentence-transformers here (after checking it's available)
     try:
@@ -216,10 +205,8 @@ def embed_chunks(
         return None
 
     # Load model
-    console.print(f"[cyan]Loading sentence transformer model...[/cyan]")
-    console.print(
-        "[dim]Note: First run will download the model (this may take a while)[/dim]"
-    )
+    console.print("[cyan]Loading sentence transformer model...[/cyan]")
+    console.print("[dim]Note: First run will download the model (this may take a while)[/dim]")
 
     try:
         model = SentenceTransformer(model_name)
@@ -240,7 +227,7 @@ def embed_chunks(
         return None
 
     # Store in database
-    console.print(f"[cyan]Storing embeddings in database...[/cyan]")
+    console.print("[cyan]Storing embeddings in database...[/cyan]")
 
     cursor = conn.cursor()
 
@@ -280,7 +267,7 @@ def embed_chunks(
     total_embeddings = len(existing_chunk_ids) + len(chunks_to_embed)
     embedding_dim = embeddings[0].shape[0]
 
-    console.print(f"\n[green]✓ Embedding complete![/green]")
+    console.print("\n[green]✓ Embedding complete![/green]")
     console.print(f"[bold]Total chunks:[/bold] {len(chunks)}")
     console.print(f"[bold]New embeddings:[/bold] {len(chunks_to_embed)}")
     console.print(f"[bold]Existing embeddings:[/bold] {len(existing_chunk_ids)}")

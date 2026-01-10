@@ -143,7 +143,7 @@ def ingest_video(input_video_path: Path) -> Optional[Path]:
     source_filename = f"source{source_extension}"
     source_path = project_dir / source_filename
 
-    console.print(f"[cyan]Copying source video...[/cyan]")
+    console.print("[cyan]Copying source video...[/cyan]")
     try:
         shutil.copy2(input_video_path, source_path)
         logger.info(f"Copied source video to: {source_path}")
@@ -153,14 +153,14 @@ def ingest_video(input_video_path: Path) -> Optional[Path]:
         return None
 
     # Extract video duration
-    console.print(f"[cyan]Extracting metadata...[/cyan]")
+    console.print("[cyan]Extracting metadata...[/cyan]")
     duration = get_video_duration(source_path)
     if duration:
         logger.info(f"Video duration: {duration:.2f} seconds")
 
     # Extract audio
     audio_path = project_dir / "audio.wav"
-    console.print(f"[cyan]Extracting audio (mono, 16kHz)...[/cyan]")
+    console.print("[cyan]Extracting audio (mono, 16kHz)...[/cyan]")
 
     if not extract_audio(source_path, audio_path):
         console.print("[red]Error: Audio extraction failed[/red]")
@@ -185,12 +185,12 @@ def ingest_video(input_video_path: Path) -> Optional[Path]:
     }
 
     meta_path = project_dir / "meta.json"
-    with open(meta_path, "w", encoding="utf-8") as f:
+    with meta_path.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
     logger.info(f"Created metadata: {meta_path}")
 
-    console.print(f"\n[green]✓ Project created successfully![/green]")
+    console.print("\n[green]✓ Project created successfully![/green]")
     console.print(f"[bold]Project path:[/bold] {project_dir.absolute()}")
     if duration:
         console.print(f"[dim]Duration: {duration:.1f}s ({duration/60:.1f} min)[/dim]")

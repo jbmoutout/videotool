@@ -28,9 +28,7 @@ def deserialize_vector(blob: bytes, dtype=np.float32) -> np.ndarray:
     return np.frombuffer(blob, dtype=dtype)
 
 
-def load_embeddings_for_chunks(
-    db_path: Path, chunk_ids: list[str], model_name: str
-) -> np.ndarray:
+def load_embeddings_for_chunks(db_path: Path, chunk_ids: list[str], model_name: str) -> np.ndarray:
     """
     Load embeddings for specific chunks from database.
 
@@ -61,14 +59,10 @@ def load_embeddings_for_chunks(
     embeddings_dict = {row[0]: deserialize_vector(row[1]) for row in rows}
 
     # Return in same order as chunk_ids
-    embeddings = np.array([embeddings_dict[cid] for cid in chunk_ids])
-
-    return embeddings
+    return np.array([embeddings_dict[cid] for cid in chunk_ids])
 
 
-def compute_segment_centroids(
-    segments: list[dict], db_path: Path, model_name: str
-) -> np.ndarray:
+def compute_segment_centroids(segments: list[dict], db_path: Path, model_name: str) -> np.ndarray:
     """
     Compute centroid embeddings for each segment.
 
@@ -99,9 +93,7 @@ def compute_segment_centroids(
     return np.array(centroids)
 
 
-def cluster_segments(
-    centroids: np.ndarray, max_topics: int, random_state: int = 42
-) -> np.ndarray:
+def cluster_segments(centroids: np.ndarray, max_topics: int, random_state: int = 42) -> np.ndarray:
     """
     Cluster segment centroids using agglomerative clustering.
 
@@ -116,9 +108,7 @@ def cluster_segments(
     n_segments = len(centroids)
     n_clusters = min(max_topics, n_segments)
 
-    logger.info(
-        f"Clustering {n_segments} segments into {n_clusters} topics"
-    )
+    logger.info(f"Clustering {n_segments} segments into {n_clusters} topics")
 
     clustering = AgglomerativeClustering(
         n_clusters=n_clusters,
@@ -126,14 +116,10 @@ def cluster_segments(
         linkage="average",
     )
 
-    labels = clustering.fit_predict(centroids)
-
-    return labels
+    return clustering.fit_predict(centroids)
 
 
-def build_topic_map(
-    segments: list[dict], labels: np.ndarray, db_path: Path
-) -> list[dict]:
+def build_topic_map(segments: list[dict], labels: np.ndarray, db_path: Path) -> list[dict]:
     """
     Build topic map from cluster labels.
 
@@ -159,34 +145,34 @@ def build_topic_map(
     # Build output structure
     topics = []
 
-    for topic_idx, (label, topic_segments) in enumerate(
-        sorted(topics_dict.items())
-    ):
+    for topic_idx, (_label, topic_segments) in enumerate(sorted(topics_dict.items())):
         # Sort segments within topic by time
         topic_segments = sorted(topic_segments, key=lambda s: s["start"])
 
         # Build spans (each segment becomes a span)
         spans = []
         for seg in topic_segments:
-            spans.append({
-                "start": seg["start"],
-                "end": seg["end"],
-                "chunk_ids": seg["chunk_ids"],
-                "segment_ids": [seg["segment_id"]],
-            })
+            spans.append(
+                {
+                    "start": seg["start"],
+                    "end": seg["end"],
+                    "chunk_ids": seg["chunk_ids"],
+                    "segment_ids": [seg["segment_id"]],
+                },
+            )
 
-        topics.append({
-            "topic_id": f"topic_{topic_idx:04d}",
-            "label_stub": "",  # To be filled by label-topics command
-            "spans": spans,
-        })
+        topics.append(
+            {
+                "topic_id": f"topic_{topic_idx:04d}",
+                "label_stub": "",  # To be filled by label-topics command
+                "spans": spans,
+            },
+        )
 
     return topics
 
 
-def cluster_topics(
-    project_path: Path, max_topics: int = 8
-) -> Optional[Path]:
+def cluster_topics(project_path: Path, max_topics: int = 8) -> Optional[Path]:
     """
     Cluster segments into topics using agglomerative clustering.
 
@@ -199,9 +185,7 @@ def cluster_topics(
     """
     # Validate project directory
     if not project_path.exists():
-        console.print(
-            f"[red]Error: Project directory not found: {project_path}[/red]"
-        )
+        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
         return None
 
     if not project_path.is_dir():
@@ -211,27 +195,21 @@ def cluster_topics(
     # Check for topic_segments.json
     segments_path = project_path / "topic_segments.json"
     if not segments_path.exists():
-        console.print(
-            f"[red]Error: Topic segments not found: {segments_path}[/red]"
-        )
-        console.print(
-            "Run 'vodtool segment-topics' first to create segments."
-        )
+        console.print(f"[red]Error: Topic segments not found: {segments_path}[/red]")
+        console.print("Run 'vodtool segment-topics' first to create segments.")
         return None
 
     # Check for embeddings database
     db_path = project_path / "embeddings.sqlite"
     if not db_path.exists():
-        console.print(
-            f"[red]Error: Embeddings database not found: {db_path}[/red]"
-        )
+        console.print(f"[red]Error: Embeddings database not found: {db_path}[/red]")
         return None
 
     # Load segments
-    console.print(f"[cyan]Loading topic segments...[/cyan]")
+    console.print("[cyan]Loading topic segments...[/cyan]")
 
     try:
-        with open(segments_path, "r", encoding="utf-8") as f:
+        with segments_path.open(encoding="utf-8") as f:
             segments = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading segments: {e}[/red]")
@@ -251,16 +229,14 @@ def cluster_topics(
     conn.close()
 
     if not result:
-        console.print(
-            "[red]Error: No embeddings found in database[/red]"
-        )
+        console.print("[red]Error: No embeddings found in database[/red]")
         return None
 
     model_name = result[0]
     logger.info(f"Using embeddings from model: {model_name}")
 
     # Compute segment centroids
-    console.print(f"[cyan]Computing segment centroids...[/cyan]")
+    console.print("[cyan]Computing segment centroids...[/cyan]")
 
     try:
         centroids = compute_segment_centroids(segments, db_path, model_name)
@@ -270,19 +246,17 @@ def cluster_topics(
         return None
 
     # Cluster segments
-    console.print(
-        f"[cyan]Clustering segments into topics (max {max_topics})...[/cyan]"
-    )
+    console.print(f"[cyan]Clustering segments into topics (max {max_topics})...[/cyan]")
 
     try:
         labels = cluster_segments(centroids, max_topics)
-        logger.info(f"Clustering complete")
+        logger.info("Clustering complete")
     except Exception as e:
         console.print(f"[red]Error clustering segments: {e}[/red]")
         return None
 
     # Build topic map
-    console.print(f"[cyan]Building topic map...[/cyan]")
+    console.print("[cyan]Building topic map...[/cyan]")
 
     try:
         topics = build_topic_map(segments, labels, db_path)
@@ -295,7 +269,7 @@ def cluster_topics(
     output_path = project_path / "topic_map.json"
 
     try:
-        with open(output_path, "w", encoding="utf-8") as f:
+        with output_path.open("w", encoding="utf-8") as f:
             json.dump(topics, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved topic_map.json: {output_path}")
     except Exception as e:
@@ -312,24 +286,17 @@ def cluster_topics(
     total_chunks = sum(len(seg["chunk_ids"]) for seg in segments)
 
     if len(all_chunks) != total_chunks:
-        console.print(
-            "[yellow]Warning: Not all chunks covered in topic map[/yellow]"
-        )
-        logger.warning(
-            f"Chunks in topics: {len(all_chunks)}, "
-            f"Total chunks: {total_chunks}"
-        )
+        console.print("[yellow]Warning: Not all chunks covered in topic map[/yellow]")
+        logger.warning(f"Chunks in topics: {len(all_chunks)}, Total chunks: {total_chunks}")
 
     # Print summary
     total_spans = sum(len(t["spans"]) for t in topics)
     avg_spans_per_topic = total_spans / len(topics)
 
-    console.print(f"\n[green]✓ Topic clustering complete![/green]")
+    console.print("\n[green]✓ Topic clustering complete![/green]")
     console.print(f"[bold]Topics:[/bold] {len(topics)}")
     console.print(f"[bold]Total spans:[/bold] {total_spans}")
-    console.print(
-        f"[bold]Average spans per topic:[/bold] {avg_spans_per_topic:.1f}"
-    )
+    console.print(f"[bold]Average spans per topic:[/bold] {avg_spans_per_topic:.1f}")
     console.print(f"[bold]Output:[/bold] {output_path}")
 
     return output_path
