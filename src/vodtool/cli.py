@@ -10,6 +10,7 @@ from rich.console import Console
 from vodtool import __version__
 from vodtool.commands.chunks import create_chunks
 from vodtool.commands.cutplan import generate_cutplan
+from vodtool.commands.diarize import diarize_command
 from vodtool.commands.embed import embed_chunks
 from vodtool.commands.export import export_video
 from vodtool.commands.ingest import ingest_video
@@ -44,11 +45,20 @@ def main(
         help="Show version and exit",
     ),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose logging"),
+    ffmpeg_path: Optional[str] = typer.Option(
+        None,
+        "--ffmpeg-path",
+        help="Path to ffmpeg binary (default: 'ffmpeg' in PATH)",
+        envvar="VODTOOL_FFMPEG_PATH",
+    ),
 ):
     """VodTool: Extract topic-focused videos from long multi-topic streams."""
     if verbose:
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose logging enabled")
+
+    # Store ffmpeg_path in app context for commands to access
+    app.state = {"ffmpeg_path": ffmpeg_path or "ffmpeg"}
 
 
 @app.command()
@@ -60,7 +70,8 @@ def ingest(
 
     Creates a project folder with extracted audio and metadata.
     """
-    project_dir = ingest_video(input_video_path)
+    ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
+    project_dir = ingest_video(input_video_path, ffmpeg_path)
     if project_dir is None:
         raise typer.Exit(code=1)
 
@@ -69,6 +80,11 @@ def ingest(
 def transcribe(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     model: str = typer.Option("small", "--model", help="Whisper model size"),
+    language: Optional[str] = typer.Option(
+        None,
+        "--language",
+        help="Language code (e.g., 'en', 'fr', 'es'). Auto-detect if not specified.",
+    ),
     force: bool = typer.Option(False, "--force", help="Force re-transcription"),
 ):
     """
@@ -76,7 +92,7 @@ def transcribe(
 
     Generates timestamped transcript from project audio.
     """
-    transcript_path = transcribe_audio(project_path, model, force)
+    transcript_path = transcribe_audio(project_path, model, force, language)
     if transcript_path is None:
         raise typer.Exit(code=1)
 
@@ -175,6 +191,19 @@ def cutplan(
 
 
 @app.command()
+def diarize(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    num_main: int = typer.Option(2, "--num-main", help="Number of main speakers to identify"),
+):
+    """
+    Perform speaker diarization on project audio.
+
+    Identifies speakers and maps top N speakers to MAIN_1, MAIN_2, etc.
+    """
+    diarize_command(project_path, num_main)
+
+
+@app.command()
 def export(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
 ):
@@ -183,7 +212,8 @@ def export(
 
     Generates final topic-focused video with preview.
     """
-    export_path = export_video(project_path)
+    ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
+    export_path = export_video(project_path, ffmpeg_path)
     if export_path is None:
         raise typer.Exit(code=1)
 

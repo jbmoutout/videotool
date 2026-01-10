@@ -28,13 +28,16 @@ def deserialize_vector(blob: bytes, dtype=np.float32) -> np.ndarray:
     return np.frombuffer(blob, dtype=dtype)
 
 
-def load_embeddings_from_db(db_path: Path, model_name: str) -> tuple[list[str], np.ndarray]:
+def load_embeddings_from_db(
+    db_path: Path, model_name: str, filter_main_speakers: bool = True
+) -> tuple[list[str], np.ndarray]:
     """
     Load embeddings from SQLite database.
 
     Args:
         db_path: Path to embeddings.sqlite
         model_name: Name of the model to load embeddings for
+        filter_main_speakers: If True, only load chunks from MAIN speakers (default: True)
 
     Returns:
         Tuple of (chunk_ids, embeddings_matrix)
@@ -42,17 +45,36 @@ def load_embeddings_from_db(db_path: Path, model_name: str) -> tuple[list[str], 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Load embeddings for specified model, ordered by chunk_id
-    cursor.execute(
-        """
-        SELECT e.chunk_id, e.vector
-        FROM embeddings e
-        JOIN chunks c ON e.chunk_id = c.chunk_id
-        WHERE e.model = ?
-        ORDER BY c.start
-        """,
-        (model_name,),
-    )
+    # Check if speaker column exists in chunks table
+    cursor.execute("PRAGMA table_info(chunks)")
+    columns = [col[1] for col in cursor.fetchall()]
+    has_speaker = "speaker" in columns
+
+    if filter_main_speakers and has_speaker:
+        # Load embeddings for MAIN speakers only, ordered by start time
+        cursor.execute(
+            """
+            SELECT e.chunk_id, e.vector
+            FROM embeddings e
+            JOIN chunks c ON e.chunk_id = c.chunk_id
+            WHERE e.model = ?
+              AND (c.speaker LIKE 'MAIN_%' OR c.speaker IS NULL OR c.speaker = 'UNKNOWN')
+            ORDER BY c.start
+            """,
+            (model_name,),
+        )
+    else:
+        # Load all embeddings, ordered by start time
+        cursor.execute(
+            """
+            SELECT e.chunk_id, e.vector
+            FROM embeddings e
+            JOIN chunks c ON e.chunk_id = c.chunk_id
+            WHERE e.model = ?
+            ORDER BY c.start
+            """,
+            (model_name,),
+        )
 
     rows = cursor.fetchall()
     conn.close()
@@ -249,14 +271,15 @@ def segment_topics(project_path: Path, max_topics: int = 8) -> Optional[Path]:
     model_name = result[0]
     logger.info(f"Using embeddings from model: {model_name}")
 
-    # Load embeddings
-    chunk_ids, embeddings = load_embeddings_from_db(db_path, model_name)
+    # Load embeddings (filter to MAIN speakers by default)
+    chunk_ids, embeddings = load_embeddings_from_db(db_path, model_name, filter_main_speakers=True)
 
     if len(chunk_ids) == 0:
         console.print("[yellow]Warning: No embeddings found[/yellow]")
         return None
 
-    logger.info(f"Loaded {len(chunk_ids)} embeddings")
+    logger.info(f"Loaded {len(chunk_ids)} embeddings (MAIN speakers only)")
+    console.print(f"[cyan]Loaded {len(chunk_ids)} chunks from MAIN speakers[/cyan]")
 
     # Detect boundaries
     console.print(f"[cyan]Detecting topic boundaries (max {max_topics} segments)...[/cyan]")
