@@ -15,6 +15,7 @@ from vodtool.commands.embed import embed_chunks
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.topics import cluster_topics
 from vodtool.commands.label_topics import label_topics_command
+from vodtool.commands.cutplan import generate_cutplan
 
 app = typer.Typer(
     name="vodtool",
@@ -163,9 +164,9 @@ def cutplan(
 
     Creates keep/drop spans for topic-focused editing (suggest-only).
     """
-    console.print("[yellow]Not implemented yet: cutplan command[/yellow]")
-    console.print(f"Would create cutplan for: {project_path}, topic: {topic}")
-    raise typer.Exit(code=1)
+    cutplan_path = generate_cutplan(project_path, topic)
+    if cutplan_path is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
