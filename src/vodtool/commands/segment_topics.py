@@ -28,9 +28,7 @@ def deserialize_vector(blob: bytes, dtype=np.float32) -> np.ndarray:
     return np.frombuffer(blob, dtype=dtype)
 
 
-def load_embeddings_from_db(
-    db_path: Path, model_name: str
-) -> tuple[list[str], np.ndarray]:
+def load_embeddings_from_db(db_path: Path, model_name: str) -> tuple[list[str], np.ndarray]:
     """
     Load embeddings from SQLite database.
 
@@ -68,9 +66,7 @@ def load_embeddings_from_db(
     return chunk_ids, embeddings
 
 
-def detect_topic_boundaries(
-    embeddings: np.ndarray, percentile: float = 25.0
-) -> list[int]:
+def detect_topic_boundaries(embeddings: np.ndarray, percentile: float = 25.0) -> list[int]:
     """
     Detect topic boundaries using cosine similarity drops.
 
@@ -87,18 +83,14 @@ def detect_topic_boundaries(
     # Compute cosine similarity between consecutive chunks
     similarities = []
     for i in range(len(embeddings) - 1):
-        sim = cosine_similarity(
-            embeddings[i : i + 1], embeddings[i + 1 : i + 2]
-        )[0][0]
+        sim = cosine_similarity(embeddings[i : i + 1], embeddings[i + 1 : i + 2])[0][0]
         similarities.append(sim)
 
     similarities = np.array(similarities)
 
     # Find threshold using percentile
     threshold = np.percentile(similarities, percentile)
-    logger.info(
-        f"Similarity threshold ({percentile}th percentile): {threshold:.4f}"
-    )
+    logger.info(f"Similarity threshold ({percentile}th percentile): {threshold:.4f}")
 
     # Boundaries where similarity drops below threshold
     boundaries = [0]  # Always start with first chunk
@@ -111,9 +103,7 @@ def detect_topic_boundaries(
     return boundaries
 
 
-def merge_segments_to_max(
-    segments: list[dict], max_segments: int
-) -> list[dict]:
+def merge_segments_to_max(segments: list[dict], max_segments: int) -> list[dict]:
     """
     Merge segments until count <= max_segments.
 
@@ -129,9 +119,7 @@ def merge_segments_to_max(
     if len(segments) <= max_segments:
         return segments
 
-    logger.info(
-        f"Merging {len(segments)} segments down to {max_segments} max"
-    )
+    logger.info(f"Merging {len(segments)} segments down to {max_segments} max")
 
     # Create working copy
     working_segments = [seg.copy() for seg in segments]
@@ -164,9 +152,7 @@ def merge_segments_to_max(
 
         # Replace with merged segment
         working_segments = (
-            working_segments[:max_sim_idx]
-            + [merged]
-            + working_segments[max_sim_idx + 2 :]
+            working_segments[:max_sim_idx] + [merged] + working_segments[max_sim_idx + 2 :]
         )
 
     logger.info(f"Final segment count: {len(working_segments)}")
@@ -175,7 +161,9 @@ def merge_segments_to_max(
 
 
 def create_segment_metadata(
-    segments: list[dict], chunk_ids_all: list[str], db_path: Path
+    segments: list[dict],
+    chunk_ids_all: list[str],
+    db_path: Path,
 ) -> list[dict]:
     """
     Create segment metadata with start/end times.
@@ -206,19 +194,19 @@ def create_segment_metadata(
         start_time = chunk_times[chunk_ids[0]][0]
         end_time = chunk_times[chunk_ids[-1]][1]
 
-        output_segments.append({
-            "segment_id": f"seg_{i:04d}",
-            "start": start_time,
-            "end": end_time,
-            "chunk_ids": chunk_ids,
-        })
+        output_segments.append(
+            {
+                "segment_id": f"seg_{i:04d}",
+                "start": start_time,
+                "end": end_time,
+                "chunk_ids": chunk_ids,
+            },
+        )
 
     return output_segments
 
 
-def segment_topics(
-    project_path: Path, max_topics: int = 8
-) -> Optional[Path]:
+def segment_topics(project_path: Path, max_topics: int = 8) -> Optional[Path]:
     """
     Detect topic boundaries using embedding similarity.
 
@@ -231,9 +219,7 @@ def segment_topics(
     """
     # Validate project directory
     if not project_path.exists():
-        console.print(
-            f"[red]Error: Project directory not found: {project_path}[/red]"
-        )
+        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
         return None
 
     if not project_path.is_dir():
@@ -243,14 +229,12 @@ def segment_topics(
     # Check for embeddings database
     db_path = project_path / "embeddings.sqlite"
     if not db_path.exists():
-        console.print(
-            f"[red]Error: Embeddings database not found: {db_path}[/red]"
-        )
+        console.print(f"[red]Error: Embeddings database not found: {db_path}[/red]")
         console.print("Run 'vodtool embed' first to generate embeddings.")
         return None
 
     # Determine model name (use first available)
-    console.print(f"[cyan]Loading embeddings...[/cyan]")
+    console.print("[cyan]Loading embeddings...[/cyan]")
 
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -259,9 +243,7 @@ def segment_topics(
     conn.close()
 
     if not result:
-        console.print(
-            "[red]Error: No embeddings found in database[/red]"
-        )
+        console.print("[red]Error: No embeddings found in database[/red]")
         return None
 
     model_name = result[0]
@@ -277,9 +259,7 @@ def segment_topics(
     logger.info(f"Loaded {len(chunk_ids)} embeddings")
 
     # Detect boundaries
-    console.print(
-        f"[cyan]Detecting topic boundaries (max {max_topics} segments)...[/cyan]"
-    )
+    console.print(f"[cyan]Detecting topic boundaries (max {max_topics} segments)...[/cyan]")
 
     boundaries = detect_topic_boundaries(embeddings, percentile=25.0)
 
@@ -287,15 +267,14 @@ def segment_topics(
     segments = []
     for i, boundary_idx in enumerate(boundaries):
         # Determine end of this segment
-        if i + 1 < len(boundaries):
-            end_idx = boundaries[i + 1]
-        else:
-            end_idx = len(chunk_ids)
+        end_idx = boundaries[i + 1] if i + 1 < len(boundaries) else len(chunk_ids)
 
-        segments.append({
-            "chunk_ids": chunk_ids[boundary_idx:end_idx],
-            "embeddings": embeddings[boundary_idx:end_idx],
-        })
+        segments.append(
+            {
+                "chunk_ids": chunk_ids[boundary_idx:end_idx],
+                "embeddings": embeddings[boundary_idx:end_idx],
+            },
+        )
 
     logger.info(f"Initial segments: {len(segments)}")
 
@@ -304,14 +283,14 @@ def segment_topics(
         segments = merge_segments_to_max(segments, max_topics)
 
     # Create output metadata
-    console.print(f"[cyan]Creating segment metadata...[/cyan]")
+    console.print("[cyan]Creating segment metadata...[/cyan]")
     output_segments = create_segment_metadata(segments, chunk_ids, db_path)
 
     # Save topic_segments.json
     output_path = project_path / "topic_segments.json"
 
     try:
-        with open(output_path, "w", encoding="utf-8") as f:
+        with output_path.open("w", encoding="utf-8") as f:
             json.dump(output_segments, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved topic_segments.json: {output_path}")
     except Exception as e:
@@ -324,23 +303,19 @@ def segment_topics(
         all_chunks_in_segments.update(seg["chunk_ids"])
 
     if len(all_chunks_in_segments) != len(chunk_ids):
-        console.print(
-            "[yellow]Warning: Not all chunks covered by segments[/yellow]"
-        )
+        console.print("[yellow]Warning: Not all chunks covered by segments[/yellow]")
         logger.warning(
-            f"Chunks in segments: {len(all_chunks_in_segments)}, "
-            f"Total chunks: {len(chunk_ids)}"
+            f"Chunks in segments: {len(all_chunks_in_segments)}, Total chunks: {len(chunk_ids)}",
         )
 
     # Print summary
     total_duration = output_segments[-1]["end"] - output_segments[0]["start"]
     avg_duration = total_duration / len(output_segments)
 
-    console.print(f"\n[green]✓ Segmentation complete![/green]")
+    console.print("\n[green]✓ Segmentation complete![/green]")
     console.print(f"[bold]Segments:[/bold] {len(output_segments)}")
     console.print(
-        f"[bold]Total duration:[/bold] {total_duration:.1f}s "
-        f"({total_duration/60:.1f} min)"
+        f"[bold]Total duration:[/bold] {total_duration:.1f}s ({total_duration/60:.1f} min)",
     )
     console.print(f"[bold]Average segment:[/bold] {avg_duration:.1f}s")
     console.print(f"[bold]Output:[/bold] {output_path}")

@@ -26,9 +26,7 @@ def check_ffmpeg_available() -> bool:
         return False
 
 
-def build_ffmpeg_command(
-    source_path: Path, keep_spans: list[dict], output_path: Path
-) -> list[str]:
+def build_ffmpeg_command(source_path: Path, keep_spans: list[dict], output_path: Path) -> list[str]:
     """
     Build ffmpeg command for cutting and concatenating spans.
 
@@ -50,48 +48,46 @@ def build_ffmpeg_command(
     for i, span in enumerate(keep_spans):
         start = span["start"]
         end = span["end"]
-        duration = end - start
 
         # Trim video and audio streams
-        filter_parts.append(
-            f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{i}]"
-        )
-        filter_parts.append(
-            f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}]"
-        )
+        filter_parts.append(f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{i}]")
+        filter_parts.append(f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}]")
 
         concat_inputs.append(f"[v{i}][a{i}]")
 
     # Concatenate all segments
     n = len(keep_spans)
-    filter_parts.append(
-        f"{''.join(concat_inputs)}concat=n={n}:v=1:a=1[outv][outa]"
-    )
+    filter_parts.append(f"{''.join(concat_inputs)}concat=n={n}:v=1:a=1[outv][outa]")
 
     filter_complex = ";".join(filter_parts)
 
     # Build full command
-    cmd = [
+    return [
         "ffmpeg",
-        "-i", str(source_path),
-        "-filter_complex", filter_complex,
-        "-map", "[outv]",
-        "-map", "[outa]",
-        "-c:v", "libx264",  # H.264 codec
-        "-preset", "medium",  # Balance speed/quality
-        "-crf", "23",  # Quality (lower = better, 23 is default)
-        "-c:a", "aac",  # AAC audio
-        "-b:a", "128k",  # Audio bitrate
+        "-i",
+        str(source_path),
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[outv]",
+        "-map",
+        "[outa]",
+        "-c:v",
+        "libx264",  # H.264 codec
+        "-preset",
+        "medium",  # Balance speed/quality
+        "-crf",
+        "23",  # Quality (lower = better, 23 is default)
+        "-c:a",
+        "aac",  # AAC audio
+        "-b:a",
+        "128k",  # Audio bitrate
         "-y",  # Overwrite output
         str(output_path),
     ]
 
-    return cmd
 
-
-def create_export_index(
-    keep_spans: list[dict], chunks_data: list[dict]
-) -> dict:
+def create_export_index(keep_spans: list[dict], chunks_data: list[dict]) -> dict:
     """
     Create time index mapping from original to export video.
 
@@ -107,12 +103,14 @@ def create_export_index(
     export_time = 0.0
 
     for span in keep_spans:
-        original_to_export.append({
-            "original_start": span["start"],
-            "original_end": span["end"],
-            "export_start": export_time,
-        })
-        export_time += (span["end"] - span["start"])
+        original_to_export.append(
+            {
+                "original_start": span["start"],
+                "original_end": span["end"],
+                "export_start": export_time,
+            },
+        )
+        export_time += span["end"] - span["start"]
 
     # Build chunk_export_times mapping
     chunk_times = {}
@@ -123,7 +121,7 @@ def create_export_index(
 
         # Find which keep span (if any) contains this chunk
         for mapping in original_to_export:
-            if (mapping["original_start"] <= chunk_start < mapping["original_end"]):
+            if mapping["original_start"] <= chunk_start < mapping["original_end"]:
                 # Calculate export time
                 offset = chunk_start - mapping["original_start"]
                 export_time = mapping["export_start"] + offset
@@ -136,9 +134,7 @@ def create_export_index(
     }
 
 
-def create_preview_html(
-    project_path: Path, keep_spans: list[dict], export_index: dict
-) -> str:
+def create_preview_html(project_path: Path, keep_spans: list[dict], export_index: dict) -> str:
     """
     Create HTML preview player with clickable timestamps.
 
@@ -246,8 +242,7 @@ def format_time(seconds: float) -> str:
 
     if hours > 0:
         return f"{hours}:{minutes:02d}:{secs:02d}"
-    else:
-        return f"{minutes}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
 
 
 def export_video(project_path: Path) -> Optional[Path]:
@@ -270,9 +265,7 @@ def export_video(project_path: Path) -> Optional[Path]:
 
     # Validate project directory
     if not project_path.exists():
-        console.print(
-            f"[red]Error: Project directory not found: {project_path}[/red]"
-        )
+        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
         return None
 
     if not project_path.is_dir():
@@ -282,17 +275,15 @@ def export_video(project_path: Path) -> Optional[Path]:
     # Check for cutplan.json
     cutplan_path = project_path / "cutplan.json"
     if not cutplan_path.exists():
-        console.print(
-            f"[red]Error: Cut plan not found: {cutplan_path}[/red]"
-        )
+        console.print(f"[red]Error: Cut plan not found: {cutplan_path}[/red]")
         console.print("Run 'vodtool cutplan' first to generate a cut plan.")
         return None
 
     # Load cutplan
-    console.print(f"[cyan]Loading cut plan...[/cyan]")
+    console.print("[cyan]Loading cut plan...[/cyan]")
 
     try:
-        with open(cutplan_path, "r", encoding="utf-8") as f:
+        with cutplan_path.open(encoding="utf-8") as f:
             cutplan = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading cut plan: {e}[/red]")
@@ -320,7 +311,7 @@ def export_video(project_path: Path) -> Optional[Path]:
     preview_path = project_path / "preview.html"
 
     # Build ffmpeg command
-    console.print(f"[cyan]Building ffmpeg command...[/cyan]")
+    console.print("[cyan]Building ffmpeg command...[/cyan]")
 
     try:
         cmd = build_ffmpeg_command(source_path, keep_spans, export_path)
@@ -330,8 +321,8 @@ def export_video(project_path: Path) -> Optional[Path]:
         return None
 
     # Execute ffmpeg
-    console.print(f"[cyan]Exporting video...[/cyan]")
-    console.print(f"[dim]This may take a while depending on video length...[/dim]")
+    console.print("[cyan]Exporting video...[/cyan]")
+    console.print("[dim]This may take a while depending on video length...[/dim]")
 
     try:
         result = subprocess.run(
@@ -342,7 +333,7 @@ def export_video(project_path: Path) -> Optional[Path]:
         )
         logger.debug(f"ffmpeg output: {result.stderr}")
     except subprocess.CalledProcessError as e:
-        console.print(f"[red]Error during video export:[/red]")
+        console.print("[red]Error during video export:[/red]")
         console.print(f"[red]{e.stderr}[/red]")
         return None
 
@@ -358,18 +349,18 @@ def export_video(project_path: Path) -> Optional[Path]:
 
     if chunks_path.exists():
         try:
-            with open(chunks_path, "r", encoding="utf-8") as f:
+            with chunks_path.open(encoding="utf-8") as f:
                 chunks_data = json.load(f)
         except Exception as e:
             logger.warning(f"Could not load chunks for index: {e}")
 
     # Create export index
-    console.print(f"[cyan]Creating export index...[/cyan]")
+    console.print("[cyan]Creating export index...[/cyan]")
 
     try:
         export_index = create_export_index(keep_spans, chunks_data)
 
-        with open(index_path, "w", encoding="utf-8") as f:
+        with index_path.open("w", encoding="utf-8") as f:
             json.dump(export_index, f, indent=2, ensure_ascii=False)
 
         logger.info(f"Saved export index: {index_path}")
@@ -378,12 +369,12 @@ def export_video(project_path: Path) -> Optional[Path]:
         logger.warning(f"Export index creation failed: {e}")
 
     # Create HTML preview
-    console.print(f"[cyan]Creating HTML preview...[/cyan]")
+    console.print("[cyan]Creating HTML preview...[/cyan]")
 
     try:
         html_content = create_preview_html(project_path, keep_spans, export_index)
 
-        with open(preview_path, "w", encoding="utf-8") as f:
+        with preview_path.open("w", encoding="utf-8") as f:
             f.write(html_content)
 
         logger.info(f"Saved preview: {preview_path}")
@@ -395,16 +386,12 @@ def export_video(project_path: Path) -> Optional[Path]:
     export_size_mb = export_path.stat().st_size / (1024 * 1024)
     total_duration = sum(s["end"] - s["start"] for s in keep_spans)
 
-    console.print(f"\n[green]✓ Export complete![/green]")
+    console.print("\n[green]✓ Export complete![/green]")
     console.print(f"[bold]Export video:[/bold] {export_path}")
     console.print(f"[bold]File size:[/bold] {export_size_mb:.1f} MB")
-    console.print(
-        f"[bold]Duration:[/bold] {total_duration:.1f}s ({total_duration/60:.1f} min)"
-    )
+    console.print(f"[bold]Duration:[/bold] {total_duration:.1f}s ({total_duration/60:.1f} min)")
     console.print(f"[bold]Spans:[/bold] {len(keep_spans)}")
     console.print(f"[bold]Preview:[/bold] {preview_path}")
-    console.print(
-        f"\n[cyan]Open {preview_path} in a browser to preview the video![/cyan]"
-    )
+    console.print(f"\n[cyan]Open {preview_path} in a browser to preview the video![/cyan]")
 
     return export_path

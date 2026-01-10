@@ -41,8 +41,8 @@ dev = [
 [project.scripts]
 vodtool = "vodtool.cli:app"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[tool.setuptools.package-dir]
+"" = "src"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -54,3 +54,36 @@ target-version = ["py39"]
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "ISC",   # flake8-implicit-str-concat
+    "PTH",   # flake8-use-pathlib
+    "SIM",   # flake8-simplify
+    "RET",   # flake8-return
+    "COM",   # flake8-commas
+]
+
+ignore = [
+    "BLE001",    # Allow catching Exception (common pattern in CLI tools)
+    "PLR0911",   # Allow many return statements (early returns are good)
+    "PLR0912",   # Allow many branches
+    "PLR0915",   # Allow many statements in functions
+    "C901",      # Allow complex functions (domain complexity)
+    "TRY300",    # Allow return in try block
+    "PLC0415",   # Allow imports not at top-level (optional dependencies)
+    "S603",      # Allow subprocess calls (ffmpeg, ffprobe)
+    "S607",      # Allow partial executable paths
+    "S608",      # Allow parameterized SQL (safe with placeholders)
+    "ARG001",    # Allow unused function arguments (future use)
+    "ANN001",    # Don't require type annotations for all arguments
+    "TRY400",    # Allow logger.error in exception handlers
+    "B008",      # Allow function calls in defaults (typer pattern)
+]

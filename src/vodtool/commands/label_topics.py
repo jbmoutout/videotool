@@ -43,14 +43,10 @@ def load_chunk_texts(db_path: Path, chunk_ids: list[str]) -> list[str]:
     text_dict = {row[0]: row[1] for row in rows}
 
     # Return in same order as chunk_ids
-    texts = [text_dict[cid] for cid in chunk_ids]
-
-    return texts
+    return [text_dict[cid] for cid in chunk_ids]
 
 
-def extract_tfidf_keywords(
-    documents: list[str], n_keywords: int = 5
-) -> list[list[str]]:
+def extract_tfidf_keywords(documents: list[str], n_keywords: int = 5) -> list[list[str]]:
     """
     Extract top TF-IDF keywords for each document.
 
@@ -127,9 +123,7 @@ def generate_label_from_keywords(keywords: list[str]) -> str:
     return label
 
 
-def label_topics_command(
-    project_path: Path, force: bool = False
-) -> Optional[Path]:
+def label_topics_command(project_path: Path, force: bool = False) -> Optional[Path]:
     """
     Generate human-readable labels for topics using TF-IDF.
 
@@ -142,9 +136,7 @@ def label_topics_command(
     """
     # Validate project directory
     if not project_path.exists():
-        console.print(
-            f"[red]Error: Project directory not found: {project_path}[/red]"
-        )
+        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
         return None
 
     if not project_path.is_dir():
@@ -154,25 +146,21 @@ def label_topics_command(
     # Check for topic_map.json
     topic_map_path = project_path / "topic_map.json"
     if not topic_map_path.exists():
-        console.print(
-            f"[red]Error: Topic map not found: {topic_map_path}[/red]"
-        )
+        console.print(f"[red]Error: Topic map not found: {topic_map_path}[/red]")
         console.print("Run 'vodtool topics' first to create topic map.")
         return None
 
     # Check for embeddings database (has chunk texts)
     db_path = project_path / "embeddings.sqlite"
     if not db_path.exists():
-        console.print(
-            f"[red]Error: Embeddings database not found: {db_path}[/red]"
-        )
+        console.print(f"[red]Error: Embeddings database not found: {db_path}[/red]")
         return None
 
     # Load topic map
-    console.print(f"[cyan]Loading topic map...[/cyan]")
+    console.print("[cyan]Loading topic map...[/cyan]")
 
     try:
-        with open(topic_map_path, "r", encoding="utf-8") as f:
+        with topic_map_path.open(encoding="utf-8") as f:
             topics = json.load(f)
     except Exception as e:
         console.print(f"[red]Error loading topic map: {e}[/red]")
@@ -188,14 +176,12 @@ def label_topics_command(
     labeled_path = project_path / "topic_map_labeled.json"
 
     if labeled_path.exists() and not force:
-        console.print(
-            f"[yellow]Labeled topic map already exists: {labeled_path}[/yellow]"
-        )
+        console.print(f"[yellow]Labeled topic map already exists: {labeled_path}[/yellow]")
         console.print("Use --force to regenerate labels.")
 
         # Load existing labels to preserve manual edits
         try:
-            with open(labeled_path, "r", encoding="utf-8") as f:
+            with labeled_path.open(encoding="utf-8") as f:
                 existing_topics = json.load(f)
 
             # Merge: keep existing labels, add new topics
@@ -203,32 +189,26 @@ def label_topics_command(
 
             for topic in topics:
                 if topic["topic_id"] not in existing_ids:
-                    console.print(
-                        f"[cyan]Found new topic: {topic['topic_id']}[/cyan]"
-                    )
+                    console.print(f"[cyan]Found new topic: {topic['topic_id']}[/cyan]")
                     existing_topics.append(topic)
 
             if len(existing_topics) == len(topics):
-                console.print(
-                    "[green]All topics already labeled. No changes needed.[/green]"
-                )
+                console.print("[green]All topics already labeled. No changes needed.[/green]")
                 return labeled_path
 
             # Save merged version
-            with open(labeled_path, "w", encoding="utf-8") as f:
+            with labeled_path.open("w", encoding="utf-8") as f:
                 json.dump(existing_topics, f, indent=2, ensure_ascii=False)
 
-            console.print(f"[green]Added labels for new topics[/green]")
+            console.print("[green]Added labels for new topics[/green]")
             return labeled_path
 
         except Exception as e:
-            console.print(
-                f"[yellow]Warning: Could not load existing labels: {e}[/yellow]"
-            )
+            console.print(f"[yellow]Warning: Could not load existing labels: {e}[/yellow]")
             console.print("Regenerating all labels...")
 
     # Collect text for each topic
-    console.print(f"[cyan]Loading topic texts...[/cyan]")
+    console.print("[cyan]Loading topic texts...[/cyan]")
 
     topic_documents = []
     topic_ids = []
@@ -257,7 +237,7 @@ def label_topics_command(
     logger.info(f"Loaded text for {len(topic_documents)} topics")
 
     # Extract keywords using TF-IDF
-    console.print(f"[cyan]Extracting keywords with TF-IDF...[/cyan]")
+    console.print("[cyan]Extracting keywords with TF-IDF...[/cyan]")
 
     try:
         keywords_per_topic = extract_tfidf_keywords(topic_documents, n_keywords=6)
@@ -266,7 +246,7 @@ def label_topics_command(
         return None
 
     # Generate labels
-    console.print(f"[cyan]Generating labels...[/cyan]")
+    console.print("[cyan]Generating labels...[/cyan]")
 
     for topic, keywords in zip(topics, keywords_per_topic):
         label = generate_label_from_keywords(keywords)
@@ -275,7 +255,7 @@ def label_topics_command(
 
     # Save labeled topic map
     try:
-        with open(labeled_path, "w", encoding="utf-8") as f:
+        with labeled_path.open("w", encoding="utf-8") as f:
             json.dump(topics, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved topic_map_labeled.json: {labeled_path}")
     except Exception as e:
@@ -283,7 +263,7 @@ def label_topics_command(
         return None
 
     # Print summary
-    console.print(f"\n[green]✓ Topic labeling complete![/green]")
+    console.print("\n[green]✓ Topic labeling complete![/green]")
     console.print(f"[bold]Topics labeled:[/bold] {len(topics)}")
     console.print(f"[bold]Output:[/bold] {labeled_path}")
     console.print("\n[bold]Topic Labels:[/bold]")

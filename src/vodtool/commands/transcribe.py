@@ -22,7 +22,9 @@ def check_whisper_available() -> bool:
 
 
 def transcribe_audio(
-    project_path: Path, model_name: str = "small", force: bool = False
+    project_path: Path,
+    model_name: str = "small",
+    force: bool = False,
 ) -> Optional[Path]:
     """
     Transcribe audio using OpenAI Whisper.
@@ -66,9 +68,7 @@ def transcribe_audio(
     transcript_txt_path = project_path / "transcript.txt"
 
     if transcript_raw_path.exists() and not force:
-        console.print(
-            f"[yellow]Transcript already exists: {transcript_raw_path}[/yellow]"
-        )
+        console.print(f"[yellow]Transcript already exists: {transcript_raw_path}[/yellow]")
         console.print("Use --force to overwrite.")
         return transcript_raw_path
 
@@ -81,9 +81,7 @@ def transcribe_audio(
 
     # Load Whisper model
     console.print(f"[cyan]Loading Whisper model '{model_name}'...[/cyan]")
-    console.print(
-        "[dim]Note: First run will download the model (this may take a while)[/dim]"
-    )
+    console.print("[dim]Note: First run will download the model (this may take a while)[/dim]")
 
     try:
         model = whisper.load_model(model_name)
@@ -94,7 +92,7 @@ def transcribe_audio(
         return None
 
     # Transcribe audio
-    console.print(f"[cyan]Transcribing audio...[/cyan]")
+    console.print("[cyan]Transcribing audio...[/cyan]")
     console.print(f"[dim]Audio file: {audio_path}[/dim]")
 
     try:
@@ -119,10 +117,10 @@ def transcribe_audio(
     }
 
     # Save transcript_raw.json
-    console.print(f"[cyan]Saving transcript...[/cyan]")
+    console.print("[cyan]Saving transcript...[/cyan]")
 
     try:
-        with open(transcript_raw_path, "w", encoding="utf-8") as f:
+        with transcript_raw_path.open("w", encoding="utf-8") as f:
             json.dump(transcript_data, f, indent=2, ensure_ascii=False)
         logger.info(f"Saved transcript_raw.json: {transcript_raw_path}")
     except Exception as e:
@@ -131,7 +129,7 @@ def transcribe_audio(
 
     # Save transcript.txt (plain text)
     try:
-        with open(transcript_txt_path, "w", encoding="utf-8") as f:
+        with transcript_txt_path.open("w", encoding="utf-8") as f:
             for seg in transcript_data["segments"]:
                 f.write(seg["text"] + "\n")
         logger.info(f"Saved transcript.txt: {transcript_txt_path}")
@@ -144,7 +142,7 @@ def transcribe_audio(
     num_segments = len(transcript_data["segments"])
     if num_segments > 0:
         duration = transcript_data["segments"][-1]["end"]
-        console.print(f"\n[green]✓ Transcription complete![/green]")
+        console.print("\n[green]✓ Transcription complete![/green]")
         console.print(f"[bold]Language:[/bold] {transcript_data['language']}")
         console.print(f"[bold]Segments:[/bold] {num_segments}")
         console.print(f"[bold]Duration:[/bold] {duration:.1f}s ({duration/60:.1f} min)")
