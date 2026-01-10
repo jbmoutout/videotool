@@ -11,6 +11,7 @@ from vodtool import __version__
 from vodtool.commands.ingest import ingest_video
 from vodtool.commands.transcribe import transcribe_audio
 from vodtool.commands.chunks import create_chunks
+from vodtool.commands.embed import embed_chunks
 
 app = typer.Typer(
     name="vodtool",
@@ -99,9 +100,9 @@ def embed(
 
     Computes semantic embeddings using sentence-transformers.
     """
-    console.print("[yellow]Not implemented yet: embed command[/yellow]")
-    console.print(f"Would embed chunks for: {project_path}")
-    raise typer.Exit(code=1)
+    db_path = embed_chunks(project_path, model)
+    if db_path is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
