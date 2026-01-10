@@ -3,30 +3,54 @@
 import json
 import logging
 import os
+import warnings
 from pathlib import Path
 
+# Suppress noisy deprecation warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+# MUST patch torch BEFORE any torch operations or imports that use it
+# Set environment variable to disable weights_only globally for PyTorch 2.6+
+# This must be set before torch is imported anywhere
+os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"] = "0"
+
 import torch
-import typer
-from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Patch torch.load to use weights_only=False for pyannote compatibility
-# PyTorch 2.6+ changed default to weights_only=True which breaks pyannote
+# Double-check: Also patch torch.load directly as a fallback
+# pyannote models were created before PyTorch 2.6 and are trusted sources
 _original_torch_load = torch.load
 
 
 def _patched_torch_load(*args, **kwargs):
-    """Wrapper for torch.load that defaults to weights_only=False."""
-    if "weights_only" not in kwargs:
-        kwargs["weights_only"] = False
+    """Force weights_only=False for pyannote.audio compatibility with PyTorch 2.6+."""
+    kwargs["weights_only"] = False
     return _original_torch_load(*args, **kwargs)
 
 
 torch.load = _patched_torch_load
+
+# Also patch the internal _load function used by torch.load
+if hasattr(torch, "_load"):
+    _original_internal_load = torch._load
+
+    def _patched_internal_load(*args, **kwargs):
+        kwargs["weights_only"] = False
+        return _original_internal_load(*args, **kwargs)
+
+    torch._load = _patched_internal_load
+
+import typer
+from dotenv import load_dotenv
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+
+logger = logging.getLogger(__name__)
+console = Console()
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def diarize_command(
@@ -86,6 +110,7 @@ def diarize_command(
         raise typer.Exit(1)
 
     # Load pretrained pipeline
+    console.print("[cyan]Loading diarization model...[/cyan]")
     try:
         pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
@@ -99,9 +124,22 @@ def diarize_command(
         )
         raise typer.Exit(1)
 
-    # Run diarization
+    # Run diarization with progress indicator
+    console.print(
+        f"[cyan]Running speaker diarization "
+        f"(~{meta['duration_seconds']/60:.1f} min audio)...[/cyan]"
+    )
+    console.print("[dim]This may take several minutes...[/dim]")
+
     try:
-        diarization = pipeline(str(audio_path))
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Analyzing audio...", total=None)
+            diarization = pipeline(str(audio_path))
+            progress.update(task, completed=True)
     except Exception as e:
         logger.error(f"Diarization failed: {e}")
         raise typer.Exit(1)
@@ -158,11 +196,32 @@ def diarize_command(
         json.dump(speaker_map, f, indent=2)
 
     logger.info(f"Saved speaker map to {map_file}")
-    logger.info(f"Identified {len(main_speakers)} main speaker(s) and {len(other_speakers)} other(s)")
+    logger.info(
+        f"Identified {len(main_speakers)} main speaker(s) "
+        f"and {len(other_speakers)} other(s)"
+    )
+
+    # Display results
+    console.print("\n[green]✓ Diarization complete![/green]")
+    console.print(f"[bold]Total segments:[/bold] {len(segments)}")
+    console.print(f"[bold]Main speakers:[/bold] {len(main_speakers)}")
 
     for speaker in main_speakers:
-        logger.info(
-            f"  {speaker['role']}: {speaker['speaker_id']} ({speaker['seconds']}s)"
+        console.print(
+            f"  • [bold]{speaker['role']}:[/bold] "
+            f"{speaker['speaker_id']} ({speaker['seconds']}s)"
         )
 
-    typer.echo(f"✓ Diarization complete. Main speakers: {len(main_speakers)}")
+    if other_speakers:
+        console.print(f"[bold]Other speakers:[/bold] {len(other_speakers)}")
+        for speaker in other_speakers[:3]:  # Show first 3
+            console.print(
+                f"  • {speaker['speaker_id']} ({speaker['seconds']}s)"
+            )
+        if len(other_speakers) > 3:
+            console.print(f"  • ...and {len(other_speakers) - 3} more")
+
+    console.print(
+        f"\n[dim]Run 'vodtool diarize-review {project_path}' "
+        "to classify background speakers[/dim]"
+    )

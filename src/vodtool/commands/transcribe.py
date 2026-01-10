@@ -25,6 +25,7 @@ def transcribe_audio(
     project_path: Path,
     model_name: str = "small",
     force: bool = False,
+    language: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Transcribe audio using OpenAI Whisper.
@@ -33,6 +34,7 @@ def transcribe_audio(
         project_path: Path to the project directory
         model_name: Whisper model size (tiny, base, small, medium, large)
         force: Force re-transcription even if transcript exists
+        language: Language code (e.g., 'en', 'fr', 'es'). Auto-detect if None.
 
     Returns:
         Path to the transcript_raw.json file, or None if transcription failed
@@ -94,9 +96,14 @@ def transcribe_audio(
     # Transcribe audio
     console.print("[cyan]Transcribing audio...[/cyan]")
     console.print(f"[dim]Audio file: {audio_path}[/dim]")
+    if language:
+        console.print(f"[dim]Language: {language}[/dim]")
 
     try:
-        result = model.transcribe(str(audio_path), verbose=False)
+        transcribe_kwargs = {"verbose": False}
+        if language:
+            transcribe_kwargs["language"] = language
+        result = model.transcribe(str(audio_path), **transcribe_kwargs)
         logger.info("Transcription complete")
     except Exception as e:
         console.print(f"[red]Error during transcription: {e}[/red]")

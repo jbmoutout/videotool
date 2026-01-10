@@ -15,11 +15,11 @@ console = Console()
 logger = logging.getLogger("vodtool")
 
 
-def check_ffmpeg_available() -> bool:
+def check_ffmpeg_available(ffmpeg_path: str = "ffmpeg") -> bool:
     """Check if ffmpeg is installed and accessible."""
     try:
         result = subprocess.run(
-            ["ffmpeg", "-version"],
+            [ffmpeg_path, "-version"],
             capture_output=True,
             text=True,
             check=False,
@@ -29,7 +29,7 @@ def check_ffmpeg_available() -> bool:
         return False
 
 
-def get_video_duration(video_path: Path) -> Optional[float]:
+def get_video_duration(video_path: Path, ffprobe_path: str = "ffprobe") -> Optional[float]:
     """
     Extract video duration using ffprobe.
 
@@ -38,7 +38,7 @@ def get_video_duration(video_path: Path) -> Optional[float]:
     try:
         result = subprocess.run(
             [
-                "ffprobe",
+                ffprobe_path,
                 "-v",
                 "error",
                 "-show_entries",
@@ -59,13 +59,14 @@ def get_video_duration(video_path: Path) -> Optional[float]:
     return None
 
 
-def extract_audio(video_path: Path, output_path: Path) -> bool:
+def extract_audio(video_path: Path, output_path: Path, ffmpeg_path: str = "ffmpeg") -> bool:
     """
     Extract audio from video as mono 16kHz WAV.
 
     Args:
         video_path: Path to source video file
         output_path: Path for output audio.wav file
+        ffmpeg_path: Path to ffmpeg binary
 
     Returns:
         True if successful, False otherwise
@@ -73,7 +74,7 @@ def extract_audio(video_path: Path, output_path: Path) -> bool:
     try:
         result = subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg_path,
                 "-i",
                 str(video_path),
                 "-ac",
@@ -94,23 +95,30 @@ def extract_audio(video_path: Path, output_path: Path) -> bool:
         return False
 
 
-def ingest_video(input_video_path: Path) -> Optional[Path]:
+def ingest_video(input_video_path: Path, ffmpeg_path: str = "ffmpeg") -> Optional[Path]:
     """
     Ingest a video file and create a new project.
 
     Args:
         input_video_path: Path to the input video file
+        ffmpeg_path: Path to ffmpeg binary
 
     Returns:
         Path to the created project directory, or None if ingestion failed
     """
+    # Derive ffprobe path from ffmpeg path
+    ffprobe_path = ffmpeg_path.replace("ffmpeg", "ffprobe")
+
     # Check ffmpeg availability
-    if not check_ffmpeg_available():
-        console.print("[red]Error: ffmpeg is not installed or not in PATH[/red]")
+    if not check_ffmpeg_available(ffmpeg_path):
+        console.print(
+            f"[red]Error: ffmpeg not installed or not accessible at: {ffmpeg_path}[/red]",
+        )
         console.print("\nPlease install ffmpeg:")
         console.print("  macOS: brew install ffmpeg")
         console.print("  Ubuntu/Debian: sudo apt-get install ffmpeg")
         console.print("  Other: https://ffmpeg.org/download.html")
+        console.print("\nOr specify a custom path with --ffmpeg-path")
         return None
 
     # Validate input file
@@ -154,7 +162,7 @@ def ingest_video(input_video_path: Path) -> Optional[Path]:
 
     # Extract video duration
     console.print("[cyan]Extracting metadata...[/cyan]")
-    duration = get_video_duration(source_path)
+    duration = get_video_duration(source_path, ffprobe_path)
     if duration:
         logger.info(f"Video duration: {duration:.2f} seconds")
 
@@ -162,7 +170,7 @@ def ingest_video(input_video_path: Path) -> Optional[Path]:
     audio_path = project_dir / "audio.wav"
     console.print("[cyan]Extracting audio (mono, 16kHz)...[/cyan]")
 
-    if not extract_audio(source_path, audio_path):
+    if not extract_audio(source_path, audio_path, ffmpeg_path):
         console.print("[red]Error: Audio extraction failed[/red]")
         shutil.rmtree(project_dir, ignore_errors=True)
         return None
