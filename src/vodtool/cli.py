@@ -12,6 +12,7 @@ from vodtool.commands.ingest import ingest_video
 from vodtool.commands.transcribe import transcribe_audio
 from vodtool.commands.chunks import create_chunks
 from vodtool.commands.embed import embed_chunks
+from vodtool.commands.segment_topics import segment_topics
 
 app = typer.Typer(
     name="vodtool",
@@ -106,7 +107,7 @@ def embed(
 
 
 @app.command()
-def segment_topics(
+def segment_topics_cmd(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     max_topics: int = typer.Option(8, "--max-topics", help="Maximum number of topic segments"),
 ):
@@ -115,9 +116,9 @@ def segment_topics(
 
     Creates contiguous segments where topic changes occur.
     """
-    console.print("[yellow]Not implemented yet: segment-topics command[/yellow]")
-    console.print(f"Would segment topics for: {project_path}")
-    raise typer.Exit(code=1)
+    segments_path = segment_topics(project_path, max_topics)
+    if segments_path is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
