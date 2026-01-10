@@ -10,6 +10,7 @@ from rich.console import Console
 from vodtool import __version__
 from vodtool.commands.ingest import ingest_video
 from vodtool.commands.transcribe import transcribe_audio
+from vodtool.commands.chunks import create_chunks
 
 app = typer.Typer(
     name="vodtool",
@@ -79,9 +80,9 @@ def chunks(
 
     Creates 5-25 second chunks for embedding.
     """
-    console.print("[yellow]Not implemented yet: chunks command[/yellow]")
-    console.print(f"Would create chunks for: {project_path}")
-    raise typer.Exit(code=1)
+    chunks_path = create_chunks(project_path)
+    if chunks_path is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
