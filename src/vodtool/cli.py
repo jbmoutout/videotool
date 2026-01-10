@@ -236,6 +236,84 @@ def export(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def pipeline(
+    input_video_path: Path = typer.Argument(..., help="Path to input video file"),
+    whisper_model: str = typer.Option("small", "--whisper-model", help="Whisper model size"),
+    language: Optional[str] = typer.Option(
+        None, "--language", help="Language code (auto-detect if not specified)"
+    ),
+    max_topics: int = typer.Option(8, "--max-topics", help="Maximum number of topics"),
+    with_diarize: bool = typer.Option(
+        False, "--diarize", help="Include speaker diarization"
+    ),
+    num_main: int = typer.Option(2, "--num-main", help="Number of main speakers (if diarizing)"),
+):
+    """
+    Run full pipeline: ingest → transcribe → chunks → embed → topics → label.
+
+    One command to process a video from start to labeled topics.
+    """
+    ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
+
+    # Step 1: Ingest
+    console.print("\n[bold cyan]Step 1/8: Ingesting video...[/bold cyan]")
+    project_dir = ingest_video(input_video_path, ffmpeg_path)
+    if project_dir is None:
+        raise typer.Exit(code=1)
+
+    # Step 2: Transcribe
+    console.print("\n[bold cyan]Step 2/8: Transcribing audio...[/bold cyan]")
+    transcript_path = transcribe_audio(project_dir, whisper_model, False, language)
+    if transcript_path is None:
+        raise typer.Exit(code=1)
+
+    # Step 3: Diarize (optional)
+    if with_diarize:
+        console.print("\n[bold cyan]Step 3/8: Diarizing speakers...[/bold cyan]")
+        diarize_command(project_dir, num_main)
+    else:
+        console.print("\n[dim]Step 3/8: Skipping diarization (use --diarize to enable)[/dim]")
+
+    # Step 4: Chunks
+    console.print("\n[bold cyan]Step 4/8: Creating semantic chunks...[/bold cyan]")
+    chunks_path = create_chunks(project_dir)
+    if chunks_path is None:
+        raise typer.Exit(code=1)
+
+    # Step 5: Embed
+    console.print("\n[bold cyan]Step 5/8: Generating embeddings...[/bold cyan]")
+    db_path = embed_chunks(project_dir)
+    if db_path is None:
+        raise typer.Exit(code=1)
+
+    # Step 6: Segment topics
+    console.print("\n[bold cyan]Step 6/8: Detecting topic boundaries...[/bold cyan]")
+    segments_path = segment_topics(project_dir, max_topics)
+    if segments_path is None:
+        raise typer.Exit(code=1)
+
+    # Step 7: Cluster topics
+    console.print("\n[bold cyan]Step 7/8: Clustering topics...[/bold cyan]")
+    topic_map_path = cluster_topics(project_dir, max_topics)
+    if topic_map_path is None:
+        raise typer.Exit(code=1)
+
+    # Step 8: Label topics
+    console.print("\n[bold cyan]Step 8/8: Labeling topics...[/bold cyan]")
+    labeled_path = label_topics_command(project_dir, force=True)
+    if labeled_path is None:
+        raise typer.Exit(code=1)
+
+    # Summary
+    console.print("\n[bold green]✓ Pipeline complete![/bold green]")
+    console.print(f"[bold]Project:[/bold] {project_dir}")
+    console.print("\n[bold]Next steps:[/bold]")
+    console.print(f"  vodtool show-topics {project_dir}")
+    console.print(f"  vodtool cutplan {project_dir} --topic topic_0000")
+    console.print(f"  vodtool export {project_dir}")
+
+
 @app.command(name="inspect-topic")
 def inspect_topic(
     project_path: Path = typer.Argument(..., help="Path to project directory"),

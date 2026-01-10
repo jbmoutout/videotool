@@ -70,7 +70,18 @@ apt-get install ffmpeg
 
 ## Usage
 
-### Basic Workflow
+### Quick Start (One Command)
+
+```bash
+# Run full pipeline: ingest → transcribe → chunks → embed → topics → label
+vodtool pipeline path/to/video.mp4
+
+# With options
+vodtool pipeline path/to/video.mp4 --language fr --max-topics 10
+vodtool pipeline path/to/video.mp4 --diarize --num-main 2
+```
+
+### Step-by-Step Workflow
 
 ```bash
 # Show help
@@ -141,7 +152,10 @@ vodtool transcribe projects/<project-id> --language es
 
 ## Commands
 
-### Core Pipeline
+### Full Pipeline
+- `pipeline` - Run all steps in one command (ingest → transcribe → chunks → embed → topics → label)
+
+### Core Pipeline (Individual Steps)
 - `ingest` - Import video and extract audio
 - `transcribe` - Generate timestamped transcript using Whisper (supports `--language` for specific language codes)
 - `chunks` - Split transcript into semantic chunks
