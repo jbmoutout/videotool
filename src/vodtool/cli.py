@@ -9,6 +9,7 @@ from rich.console import Console
 
 from vodtool import __version__
 from vodtool.commands.ingest import ingest_video
+from vodtool.commands.transcribe import transcribe_audio
 
 app = typer.Typer(
     name="vodtool",
@@ -64,9 +65,9 @@ def transcribe(
 
     Generates timestamped transcript from project audio.
     """
-    console.print("[yellow]Not implemented yet: transcribe command[/yellow]")
-    console.print(f"Would transcribe: {project_path} with model {model}")
-    raise typer.Exit(code=1)
+    transcript_path = transcribe_audio(project_path, model, force)
+    if transcript_path is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
