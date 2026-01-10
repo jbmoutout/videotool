@@ -150,6 +150,25 @@ vodtool transcribe projects/<project-id> --language en
 vodtool transcribe projects/<project-id> --language es
 ```
 
+### Topic Count
+
+Control the maximum number of topics detected:
+
+```bash
+# Default: 8 topics
+vodtool segment-topics projects/<project-id>
+vodtool topics projects/<project-id>
+
+# Custom topic count
+vodtool segment-topics projects/<project-id> --max-topics 12
+vodtool topics projects/<project-id> --max-topics 12
+
+# Or via pipeline
+vodtool pipeline path/to/video.mp4 --max-topics 12
+```
+
+Lower values create broader topic groupings; higher values create more granular topics.
+
 ## Commands
 
 ### Full Pipeline
