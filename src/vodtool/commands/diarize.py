@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 
+import torch
 import typer
 from dotenv import load_dotenv
 
@@ -12,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Allow loading older PyTorch models (required for pyannote)
+torch.serialization.add_safe_globals([torch.torch_version.TorchVersion])
 
 
 def diarize_command(
