@@ -5,8 +5,12 @@ import logging
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def diarize_command(
