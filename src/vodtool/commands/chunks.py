@@ -147,6 +147,8 @@ def assign_speakers_to_chunks(
     speaker_to_role = {}
     for main_speaker in speaker_map.get("main_speakers", []):
         speaker_to_role[main_speaker["speaker_id"]] = main_speaker["role"]
+    for bg_speaker in speaker_map.get("background_speakers", []):
+        speaker_to_role[bg_speaker["speaker_id"]] = "BACKGROUND"
     for other_speaker in speaker_map.get("other_speakers", []):
         speaker_to_role[other_speaker["speaker_id"]] = "OTHER"
 

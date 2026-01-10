@@ -113,6 +113,7 @@ def diarize_command(
     speaker_map = {
         "num_main": num_main,
         "main_speakers": main_speakers,
+        "background_speakers": [],  # Empty initially, populated via diarize-review
         "other_speakers": other_speakers,
     }
 

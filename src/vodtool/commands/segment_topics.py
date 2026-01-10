@@ -51,14 +51,14 @@ def load_embeddings_from_db(
     has_speaker = "speaker" in columns
 
     if filter_main_speakers and has_speaker:
-        # Load embeddings for MAIN speakers only, ordered by start time
+        # Load embeddings for MAIN speakers only (exclude OTHER and BACKGROUND)
         cursor.execute(
             """
             SELECT e.chunk_id, e.vector
             FROM embeddings e
             JOIN chunks c ON e.chunk_id = c.chunk_id
             WHERE e.model = ?
-              AND (c.speaker LIKE 'MAIN_%' OR c.speaker IS NULL OR c.speaker = 'UNKNOWN')
+              AND c.speaker NOT IN ('OTHER', 'BACKGROUND')
             ORDER BY c.start
             """,
             (model_name,),
