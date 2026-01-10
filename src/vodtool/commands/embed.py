@@ -71,10 +71,17 @@ def init_embeddings_db(db_path: Path, model_name: str) -> sqlite3.Connection:
             chunk_id TEXT PRIMARY KEY,
             text TEXT NOT NULL,
             start REAL NOT NULL,
-            end REAL NOT NULL
+            end REAL NOT NULL,
+            speaker TEXT
         )
     """,
     )
+
+    # Check if speaker column exists, add it if not (for backwards compatibility)
+    cursor.execute("PRAGMA table_info(chunks)")
+    columns = [col[1] for col in cursor.fetchall()]
+    if "speaker" not in columns:
+        cursor.execute("ALTER TABLE chunks ADD COLUMN speaker TEXT")
 
     # Create embeddings table
     cursor.execute(
@@ -234,12 +241,13 @@ def embed_chunks(
     try:
         # Insert chunks (insert or ignore if already exists)
         for chunk in chunks_to_embed:
+            speaker = chunk.get("speaker", "UNKNOWN")
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO chunks (chunk_id, text, start, end)
-                VALUES (?, ?, ?, ?)
+                INSERT OR IGNORE INTO chunks (chunk_id, text, start, end, speaker)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (chunk["id"], chunk["text"], chunk["start"], chunk["end"]),
+                (chunk["id"], chunk["text"], chunk["start"], chunk["end"], speaker),
             )
 
         # Insert embeddings

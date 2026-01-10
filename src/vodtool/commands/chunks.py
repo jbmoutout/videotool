@@ -128,6 +128,57 @@ def create_semantic_chunks(
     return chunks
 
 
+def assign_speakers_to_chunks(
+    chunks: list[dict],
+    diarization_segments: list[dict],
+    speaker_map: dict,
+) -> None:
+    """
+    Assign speaker labels to chunks based on diarization overlap.
+
+    Modifies chunks in-place by adding a 'speaker' field.
+
+    Args:
+        chunks: List of chunks with start/end times
+        diarization_segments: List of diarization segments with start/end/speaker_id
+        speaker_map: Mapping from speaker_id to role (MAIN_1, MAIN_2, OTHER)
+    """
+    # Build reverse mapping from speaker_id to role
+    speaker_to_role = {}
+    for main_speaker in speaker_map.get("main_speakers", []):
+        speaker_to_role[main_speaker["speaker_id"]] = main_speaker["role"]
+    for other_speaker in speaker_map.get("other_speakers", []):
+        speaker_to_role[other_speaker["speaker_id"]] = "OTHER"
+
+    # For each chunk, find overlapping diarization segments and pick the one with max overlap
+    for chunk in chunks:
+        chunk_start = chunk["start"]
+        chunk_end = chunk["end"]
+        chunk_duration = chunk_end - chunk_start
+
+        best_speaker_id = None
+        max_overlap = 0.0
+
+        for seg in diarization_segments:
+            seg_start = seg["start"]
+            seg_end = seg["end"]
+
+            # Calculate overlap
+            overlap_start = max(chunk_start, seg_start)
+            overlap_end = min(chunk_end, seg_end)
+            overlap = max(0.0, overlap_end - overlap_start)
+
+            if overlap > max_overlap:
+                max_overlap = overlap
+                best_speaker_id = seg["speaker_id"]
+
+        # Map speaker_id to role
+        if best_speaker_id and best_speaker_id in speaker_to_role:
+            chunk["speaker"] = speaker_to_role[best_speaker_id]
+        else:
+            chunk["speaker"] = "UNKNOWN"
+
+
 def create_chunks(project_path: Path) -> Optional[Path]:
     """
     Split transcript into semantic chunks.
@@ -183,6 +234,32 @@ def create_chunks(project_path: Path) -> Optional[Path]:
         return None
 
     logger.info(f"Created {len(chunks)} chunks")
+
+    # Add speaker information if diarization files exist
+    diarization_path = project_path / "diarization_segments.json"
+    speaker_map_path = project_path / "speaker_map.json"
+
+    if diarization_path.exists() and speaker_map_path.exists():
+        console.print("[cyan]Adding speaker information...[/cyan]")
+        try:
+            with diarization_path.open(encoding="utf-8") as f:
+                diarization_segments = json.load(f)
+            with speaker_map_path.open(encoding="utf-8") as f:
+                speaker_map = json.load(f)
+
+            assign_speakers_to_chunks(chunks, diarization_segments, speaker_map)
+            logger.info("Added speaker labels to chunks")
+        except Exception as e:
+            console.print(f"[yellow]Warning: Could not add speaker info: {e}[/yellow]")
+            # Continue without speaker info
+            for chunk in chunks:
+                chunk["speaker"] = "UNKNOWN"
+    else:
+        # No diarization files, mark as UNKNOWN
+        for chunk in chunks:
+            chunk["speaker"] = "UNKNOWN"
+        if not diarization_path.exists():
+            console.print("[yellow]Note: Run 'vodtool diarize' to add speaker information[/yellow]")
 
     # Save chunks.json
     chunks_path = project_path / "chunks.json"
