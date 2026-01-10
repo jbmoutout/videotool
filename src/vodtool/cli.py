@@ -16,6 +16,7 @@ from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.topics import cluster_topics
 from vodtool.commands.label_topics import label_topics_command
 from vodtool.commands.cutplan import generate_cutplan
+from vodtool.commands.export import export_video
 
 app = typer.Typer(
     name="vodtool",
@@ -178,9 +179,9 @@ def export(
 
     Generates final topic-focused video with preview.
     """
-    console.print("[yellow]Not implemented yet: export command[/yellow]")
-    console.print(f"Would export video for: {project_path}")
-    raise typer.Exit(code=1)
+    export_path = export_video(project_path)
+    if export_path is None:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
