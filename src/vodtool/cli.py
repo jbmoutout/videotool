@@ -13,10 +13,13 @@ from vodtool.commands.cutplan import generate_cutplan
 from vodtool.commands.diarize import diarize_command
 from vodtool.commands.diarize_review import diarize_review_command
 from vodtool.commands.embed import embed_chunks
+from vodtool.commands.explain_chunk import explain_chunk_command
 from vodtool.commands.export import export_video
 from vodtool.commands.ingest import ingest_video
+from vodtool.commands.inspect_topic import inspect_topic_command
 from vodtool.commands.label_topics import label_topics_command
 from vodtool.commands.segment_topics import segment_topics
+from vodtool.commands.show_topics import show_topics_command
 from vodtool.commands.topics import cluster_topics
 from vodtool.commands.transcribe import transcribe_audio
 
@@ -131,7 +134,7 @@ def embed(
         raise typer.Exit(code=1)
 
 
-@app.command()
+@app.command(name="segment-topics")
 def segment_topics_cmd(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     max_topics: int = typer.Option(8, "--max-topics", help="Maximum number of topic segments"),
@@ -230,6 +233,55 @@ def export(
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
     export_path = export_video(project_path, ffmpeg_path)
     if export_path is None:
+        raise typer.Exit(code=1)
+
+
+@app.command(name="inspect-topic")
+def inspect_topic(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    topic_id: str = typer.Argument(
+        ..., help="Topic ID to inspect (e.g., topic_0000)"
+    ),
+):
+    """
+    Inspect and debug a specific topic.
+
+    Shows duration, spans, and representative chunks for analysis.
+    """
+    inspect_topic_command(project_path, topic_id)
+
+
+@app.command(name="show-topics")
+def show_topics(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    include_misc: bool = typer.Option(
+        False, "--include-misc", help="Include MISC bucket topics (short/singleton)"
+    ),
+):
+    """
+    Display chronological timeline of topic spans.
+
+    Shows when topics appear and reappear (returns) throughout the video.
+    """
+    result = show_topics_command(project_path, include_misc)
+    if result is None:
+        raise typer.Exit(code=1)
+
+
+@app.command(name="explain-chunk")
+def explain_chunk(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    chunk_id: str = typer.Argument(
+        ..., help="Chunk ID to explain (e.g., chunk_0042)"
+    ),
+):
+    """
+    Explain why a chunk belongs to its assigned topic.
+
+    Shows chunk text, assigned topic, and top-3 nearest neighbors by similarity.
+    """
+    result = explain_chunk_command(project_path, chunk_id)
+    if result is None:
         raise typer.Exit(code=1)
 
 
