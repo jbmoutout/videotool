@@ -13,6 +13,7 @@ from vodtool.commands.transcribe import transcribe_audio
 from vodtool.commands.chunks import create_chunks
 from vodtool.commands.embed import embed_chunks
 from vodtool.commands.segment_topics import segment_topics
+from vodtool.commands.topics import cluster_topics
 
 app = typer.Typer(
     name="vodtool",
@@ -131,9 +132,9 @@ def topics(
 
     Groups similar segments across the entire stream.
     """
-    console.print("[yellow]Not implemented yet: topics command[/yellow]")
-    console.print(f"Would cluster topics for: {project_path}")
-    raise typer.Exit(code=1)
+    topic_map_path = cluster_topics(project_path, max_topics)
+    if topic_map_path is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
