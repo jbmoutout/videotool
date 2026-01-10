@@ -11,6 +11,7 @@ from vodtool import __version__
 from vodtool.commands.chunks import create_chunks
 from vodtool.commands.cutplan import generate_cutplan
 from vodtool.commands.diarize import diarize_command
+from vodtool.commands.diarize_review import diarize_review_command
 from vodtool.commands.embed import embed_chunks
 from vodtool.commands.export import export_video
 from vodtool.commands.ingest import ingest_video
@@ -193,7 +194,9 @@ def cutplan(
 @app.command()
 def diarize(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    num_main: int = typer.Option(2, "--num-main", help="Number of main speakers to identify"),
+    num_main: int = typer.Option(
+        2, "--num-main", help="Number of main speakers to identify"
+    ),
 ):
     """
     Perform speaker diarization on project audio.
@@ -201,6 +204,18 @@ def diarize(
     Identifies speakers and maps top N speakers to MAIN_1, MAIN_2, etc.
     """
     diarize_command(project_path, num_main)
+
+
+@app.command(name="diarize-review")
+def diarize_review(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+):
+    """
+    Review and reclassify speakers after diarization.
+
+    Displays speaker statistics and allows marking speakers as BACKGROUND.
+    """
+    diarize_review_command(project_path)
 
 
 @app.command()
