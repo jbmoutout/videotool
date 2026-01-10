@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import typer
@@ -58,17 +59,28 @@ def diarize_command(
 
     logger.info(f"Running speaker diarization on {audio_path}")
 
+    # Get HuggingFace token from environment
+    hf_token = os.getenv("HF_TOKEN")
+    if not hf_token:
+        logger.error(
+            "HF_TOKEN not found in environment or .env file.\n"
+            "Please create a .env file with: HF_TOKEN=your_token_here\n"
+            "Get your token from: https://huggingface.co/settings/tokens\n"
+            "Accept model terms at: https://huggingface.co/pyannote/speaker-diarization-3.1"
+        )
+        raise typer.Exit(1)
+
     # Load pretrained pipeline
     try:
         pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
-            use_auth_token=None,  # May require HuggingFace token for first download
+            use_auth_token=hf_token,
         )
     except Exception as e:
         logger.error(
             f"Failed to load diarization model: {e}\n"
-            "Note: You may need to accept pyannote model conditions on HuggingFace "
-            "and set HF_TOKEN environment variable."
+            "Note: You may need to accept pyannote model conditions on HuggingFace.\n"
+            "Visit: https://huggingface.co/pyannote/speaker-diarization-3.1"
         )
         raise typer.Exit(1)
 
