@@ -14,6 +14,7 @@ from vodtool.commands.chunks import create_chunks
 from vodtool.commands.embed import embed_chunks
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.topics import cluster_topics
+from vodtool.commands.label_topics import label_topics_command
 
 app = typer.Typer(
     name="vodtool",
@@ -147,9 +148,9 @@ def label_topics(
 
     Uses TF-IDF keyword extraction to create topic labels.
     """
-    console.print("[yellow]Not implemented yet: label-topics command[/yellow]")
-    console.print(f"Would label topics for: {project_path}")
-    raise typer.Exit(code=1)
+    labeled_path = label_topics_command(project_path, force)
+    if labeled_path is None:
+        raise typer.Exit(code=1)
 
 
 @app.command()
