@@ -44,6 +44,10 @@ def diarize_command(
         meta = json.load(f)
 
     audio_path = Path(meta["audio_path"])
+    # Handle relative paths by resolving against project directory
+    if not audio_path.is_absolute():
+        audio_path = project_path / audio_path
+
     if not audio_path.exists():
         logger.error(f"Audio file not found: {audio_path}")
         raise typer.Exit(1)
