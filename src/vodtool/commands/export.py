@@ -12,11 +12,11 @@ console = Console()
 logger = logging.getLogger("vodtool")
 
 
-def check_ffmpeg_available() -> bool:
+def check_ffmpeg_available(ffmpeg_path: str = "ffmpeg") -> bool:
     """Check if ffmpeg is installed and accessible."""
     try:
         result = subprocess.run(
-            ["ffmpeg", "-version"],
+            [ffmpeg_path, "-version"],
             capture_output=True,
             text=True,
             check=False,
@@ -26,7 +26,12 @@ def check_ffmpeg_available() -> bool:
         return False
 
 
-def build_ffmpeg_command(source_path: Path, keep_spans: list[dict], output_path: Path) -> list[str]:
+def build_ffmpeg_command(
+    source_path: Path,
+    keep_spans: list[dict],
+    output_path: Path,
+    ffmpeg_path: str = "ffmpeg",
+) -> list[str]:
     """
     Build ffmpeg command for cutting and concatenating spans.
 
@@ -34,6 +39,7 @@ def build_ffmpeg_command(source_path: Path, keep_spans: list[dict], output_path:
         source_path: Path to source video
         keep_spans: List of spans to keep with start/end times
         output_path: Path for output video
+        ffmpeg_path: Path to ffmpeg binary
 
     Returns:
         ffmpeg command as list of arguments
@@ -63,7 +69,7 @@ def build_ffmpeg_command(source_path: Path, keep_spans: list[dict], output_path:
 
     # Build full command
     return [
-        "ffmpeg",
+        ffmpeg_path,
         "-i",
         str(source_path),
         "-filter_complex",
@@ -245,22 +251,26 @@ def format_time(seconds: float) -> str:
     return f"{minutes}:{secs:02d}"
 
 
-def export_video(project_path: Path) -> Optional[Path]:
+def export_video(project_path: Path, ffmpeg_path: str = "ffmpeg") -> Optional[Path]:
     """
     Export video based on cut plan.
 
     Args:
         project_path: Path to the project directory
+        ffmpeg_path: Path to ffmpeg binary
 
     Returns:
         Path to the export.mp4 file, or None if export failed
     """
     # Check ffmpeg availability
-    if not check_ffmpeg_available():
-        console.print("[red]Error: ffmpeg is not installed or not in PATH[/red]")
+    if not check_ffmpeg_available(ffmpeg_path):
+        console.print(
+            f"[red]Error: ffmpeg not installed or not accessible at: {ffmpeg_path}[/red]",
+        )
         console.print("\nPlease install ffmpeg:")
         console.print("  macOS: brew install ffmpeg")
         console.print("  Ubuntu/Debian: sudo apt-get install ffmpeg")
+        console.print("\nOr specify a custom path with --ffmpeg-path")
         return None
 
     # Validate project directory
@@ -314,7 +324,7 @@ def export_video(project_path: Path) -> Optional[Path]:
     console.print("[cyan]Building ffmpeg command...[/cyan]")
 
     try:
-        cmd = build_ffmpeg_command(source_path, keep_spans, export_path)
+        cmd = build_ffmpeg_command(source_path, keep_spans, export_path, ffmpeg_path)
         logger.debug(f"ffmpeg command: {' '.join(cmd)}")
     except Exception as e:
         console.print(f"[red]Error building ffmpeg command: {e}[/red]")
