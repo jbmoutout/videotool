@@ -372,18 +372,66 @@ def explain_chunk(
 def llm_topics_cmd(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     max_topics: Optional[int] = typer.Option(
-        None, "--max-topics", help="Maximum number of topics (optional)",
+        None,
+        "--max-topics",
+        help="Maximum number of topics (optional)",
+    ),
+    provider: str = typer.Option(
+        "auto",
+        "--provider",
+        help="LLM provider: 'anthropic' (API), 'ollama' (local), or 'auto' (try ollama first)",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        help="Model override (e.g., 'qwen2.5:3b' for Ollama)",
     ),
 ):
     """
     Use LLM to segment transcript into topics.
 
-    Requires ANTHROPIC_API_KEY in .env file.
-    Analyzes chunks directly with Claude and returns structured topic list.
+    Supports both Anthropic API (Claude) and local Ollama models.
+
+    Provider options:
+      - auto: Try Ollama first, fall back to Anthropic (default)
+      - anthropic: Force Anthropic API (requires ANTHROPIC_API_KEY)
+      - ollama: Force local Ollama (requires Ollama running)
+
+    Analyzes chunks directly with LLM and returns structured topic list.
     """
-    result = llm_topics(project_path, max_topics)
+    result = llm_topics(project_path, max_topics, provider, model)
     if result is None:
         raise typer.Exit(code=1)
+
+
+@app.command(name="compare-llm")
+def compare_llm_cmd(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    max_topics: Optional[int] = typer.Option(
+        None,
+        "--max-topics",
+        help="Maximum number of topics (optional)",
+    ),
+    ollama_model: str = typer.Option(
+        "qwen2.5:3b",
+        "--ollama-model",
+        help="Ollama model to use for comparison",
+    ),
+):
+    """
+    Compare Claude and Ollama topic generation side-by-side.
+
+    Generates topics with both providers and displays:
+      - Performance comparison (time, topic count)
+      - Side-by-side topic labels
+      - Quality insights
+
+    Saves results to topic_map_claude.json and topic_map_ollama.json.
+    Requires both ANTHROPIC_API_KEY and Ollama installed.
+    """
+    from vodtool.commands.compare_llm import compare_llm_topics
+
+    compare_llm_topics(project_path, max_topics, ollama_model)
 
 
 @app.command(name="list-topics")
