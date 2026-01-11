@@ -18,6 +18,7 @@ from vodtool.commands.export import export_video
 from vodtool.commands.ingest import ingest_video
 from vodtool.commands.inspect_topic import inspect_topic_command
 from vodtool.commands.label_topics import label_topics_command
+from vodtool.commands.llm_topics import llm_topics
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.show_topics import show_topics_command
 from vodtool.commands.topics import cluster_topics
@@ -137,7 +138,7 @@ def embed(
 @app.command(name="segment-topics")
 def segment_topics_cmd(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    max_topics: int = typer.Option(8, "--max-topics", help="Maximum number of topic segments"),
+    max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topic segments"),
 ):
     """
     Detect topic boundaries using embedding similarity.
@@ -152,7 +153,7 @@ def segment_topics_cmd(
 @app.command()
 def topics(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    max_topics: int = typer.Option(8, "--max-topics", help="Maximum number of topics"),
+    max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topics"),
 ):
     """
     Cluster segments into topics.
@@ -197,9 +198,7 @@ def cutplan(
 @app.command()
 def diarize(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    num_main: int = typer.Option(
-        2, "--num-main", help="Number of main speakers to identify"
-    ),
+    num_main: int = typer.Option(2, "--num-main", help="Number of main speakers to identify"),
 ):
     """
     Perform speaker diarization on project audio.
@@ -243,10 +242,8 @@ def pipeline(
     language: Optional[str] = typer.Option(
         None, "--language", help="Language code (auto-detect if not specified)"
     ),
-    max_topics: int = typer.Option(8, "--max-topics", help="Maximum number of topics"),
-    with_diarize: bool = typer.Option(
-        False, "--diarize", help="Include speaker diarization"
-    ),
+    max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topics"),
+    with_diarize: bool = typer.Option(False, "--diarize", help="Include speaker diarization"),
     num_main: int = typer.Option(2, "--num-main", help="Number of main speakers (if diarizing)"),
 ):
     """
@@ -317,9 +314,7 @@ def pipeline(
 @app.command(name="inspect-topic")
 def inspect_topic(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    topic_id: str = typer.Argument(
-        ..., help="Topic ID to inspect (e.g., topic_0000)"
-    ),
+    topic_id: str = typer.Argument(..., help="Topic ID to inspect (e.g., topic_0000)"),
 ):
     """
     Inspect and debug a specific topic.
@@ -349,9 +344,7 @@ def show_topics(
 @app.command(name="explain-chunk")
 def explain_chunk(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    chunk_id: str = typer.Argument(
-        ..., help="Chunk ID to explain (e.g., chunk_0042)"
-    ),
+    chunk_id: str = typer.Argument(..., help="Chunk ID to explain (e.g., chunk_0042)"),
 ):
     """
     Explain why a chunk belongs to its assigned topic.
@@ -359,6 +352,24 @@ def explain_chunk(
     Shows chunk text, assigned topic, and top-3 nearest neighbors by similarity.
     """
     result = explain_chunk_command(project_path, chunk_id)
+    if result is None:
+        raise typer.Exit(code=1)
+
+
+@app.command(name="llm-topics")
+def llm_topics_cmd(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    max_topics: Optional[int] = typer.Option(
+        None, "--max-topics", help="Maximum number of topics (optional)"
+    ),
+):
+    """
+    Use LLM to segment transcript into topics.
+
+    Requires ANTHROPIC_API_KEY in .env file.
+    Analyzes chunks directly with Claude and returns structured topic list.
+    """
+    result = llm_topics(project_path, max_topics)
     if result is None:
         raise typer.Exit(code=1)
 
