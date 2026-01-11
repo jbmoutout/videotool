@@ -184,13 +184,24 @@ def label_topics(
 def cutplan(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     topic: str = typer.Option(..., "--topic", help="Topic ID to extract"),
+    source: str = typer.Option(
+        "auto",
+        "--source",
+        help="Topic map source: 'llm', 'labeled', 'basic', or 'auto' (default)",
+    ),
 ):
     """
     Generate a cut plan for extracting a specific topic.
 
     Creates keep/drop spans for topic-focused editing (suggest-only).
+
+    Source options:
+      - auto: Use LLM > labeled > basic (first found)
+      - llm: Use topic_map_llm.json (from llm-topics command)
+      - labeled: Use topic_map_labeled.json (from label-topics command)
+      - basic: Use topic_map.json (from topics command)
     """
-    cutplan_path = generate_cutplan(project_path, topic)
+    cutplan_path = generate_cutplan(project_path, topic, source)
     if cutplan_path is None:
         raise typer.Exit(code=1)
 
