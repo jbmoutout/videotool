@@ -171,13 +171,78 @@ Lower values create broader topic groupings; higher values create more granular 
 
 ### LLM-Based Topics (Recommended)
 
-For more accurate topic detection using Claude:
+vodtool supports both local LLM (Ollama) and API-based (Claude) topic generation.
+
+#### Local LLM (Ollama) - Free & Private
+
+Cost-free, offline topic extraction running entirely on your machine:
+
+```bash
+# 1. Install Ollama (one-time setup)
+curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. Pull recommended model (one-time, ~2GB download)
+ollama pull qwen2.5:3b
+
+# 3. Generate topics with local LLM
+vodtool llm-topics projects/<project-id>
+vodtool llm-topics projects/<project-id> --max-topics 8
+
+# Force local LLM (error if unavailable)
+vodtool llm-topics projects/<project-id> --provider ollama
+
+# Try different models
+vodtool llm-topics projects/<project-id> --provider ollama --model llama3.2:3b
+```
+
+**Recommended Models:**
+- **qwen2.5:3b** (default) - Best structured output, ~2GB
+- **llama3.2:3b** - Good all-around, ~2GB
+- **gemma2:2b** - Lightest, ~1.6GB (lower quality)
+
+**Performance:** Local inference takes 10-30 seconds per stream (vs 2-5s with API).
+
+**Hardware Requirements:**
+- **Minimum:** 16GB RAM recommended for reliable inference
+- **8GB RAM:** May experience crashes with large transcripts (>100 chunks)
+- If local LLM crashes, use `--provider anthropic` or rely on auto-fallback
+
+#### Anthropic API (Claude) - Best Quality
+
+For highest quality results using Claude API:
 
 ```bash
 # Requires ANTHROPIC_API_KEY in .env file
-vodtool llm-topics projects/<project-id>
-vodtool llm-topics projects/<project-id> --max-topics 8
+vodtool llm-topics projects/<project-id> --provider anthropic
+vodtool llm-topics projects/<project-id> --provider anthropic --max-topics 8
 ```
+
+#### Auto Mode (Default)
+
+By default, vodtool tries Ollama first and falls back to Anthropic if unavailable:
+
+```bash
+# Automatic provider selection
+vodtool llm-topics projects/<project-id>  # tries ollama → anthropic
+
+# Note: Requires ANTHROPIC_API_KEY in .env for fallback to work
+```
+
+**Important:** The auto-fallback requires `ANTHROPIC_API_KEY` in your `.env` file. Without it, the command will fail if Ollama is unavailable.
+
+#### Compare Both Providers
+
+Generate topics with both Claude and Ollama, then see a side-by-side comparison:
+
+```bash
+vodtool compare-llm projects/<project-id>
+vodtool compare-llm projects/<project-id> --max-topics 8 --ollama-model qwen2.5:3b
+```
+
+This shows:
+- Performance comparison (time, topic count)
+- Side-by-side topic labels
+- Cost analysis
 
 Topic labels are automatically generated in the transcript's language.
 
@@ -214,7 +279,8 @@ Source options:
 - `segment-topics` - Detect topic boundaries
 - `topics` - Cluster segments into topics
 - `label-topics` - Generate topic labels (with duration and talk-time metrics)
-- `llm-topics` - Use Claude to identify topics (requires ANTHROPIC_API_KEY in .env)
+- `llm-topics` - Use LLM to identify topics (local Ollama or Anthropic API)
+- `compare-llm` - Compare Claude and Ollama topic generation side-by-side
 - `cutplan` - Create editing plan for a topic (use `--source llm|labeled|basic|auto`)
 - `export` - Generate final video with preview
 
