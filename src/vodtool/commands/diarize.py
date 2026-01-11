@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # This must be set before torch is imported anywhere
 os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"] = "0"
 
-import torch
+import torch  # noqa: E402
 
 # Double-check: Also patch torch.load directly as a fallback
 # pyannote models were created before PyTorch 2.6 and are trusted sources
@@ -41,10 +41,10 @@ if hasattr(torch, "_load"):
 
     torch._load = _patched_internal_load
 
-import typer
-from dotenv import load_dotenv
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+import typer  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
+from rich.console import Console  # noqa: E402
+from rich.progress import Progress, SpinnerColumn, TextColumn  # noqa: E402
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -70,9 +70,9 @@ def diarize_command(
     """
     try:
         from pyannote.audio import Pipeline
-    except ImportError:
+    except ImportError as e:
         logger.error("pyannote.audio not installed. Install with: pip install pyannote.audio")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     if not project_path.exists():
         logger.error(f"Project path does not exist: {project_path}")
@@ -105,7 +105,7 @@ def diarize_command(
             "HF_TOKEN not found in environment or .env file.\n"
             "Please create a .env file with: HF_TOKEN=your_token_here\n"
             "Get your token from: https://huggingface.co/settings/tokens\n"
-            "Accept model terms at: https://huggingface.co/pyannote/speaker-diarization-3.1"
+            "Accept model terms at: https://huggingface.co/pyannote/speaker-diarization-3.1",
         )
         raise typer.Exit(1)
 
@@ -120,14 +120,14 @@ def diarize_command(
         logger.error(
             f"Failed to load diarization model: {e}\n"
             "Note: You may need to accept pyannote model conditions on HuggingFace.\n"
-            "Visit: https://huggingface.co/pyannote/speaker-diarization-3.1"
+            "Visit: https://huggingface.co/pyannote/speaker-diarization-3.1",
         )
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     # Run diarization with progress indicator
     console.print(
         f"[cyan]Running speaker diarization "
-        f"(~{meta['duration_seconds']/60:.1f} min audio)...[/cyan]"
+        f"(~{meta['duration_seconds']/60:.1f} min audio)...[/cyan]",
     )
     console.print("[dim]This may take several minutes...[/dim]")
 
@@ -142,13 +142,13 @@ def diarize_command(
             progress.update(task, completed=True)
     except Exception as e:
         logger.error(f"Diarization failed: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
     # Convert to list of segments
     segments = []
     for turn, _, speaker in diarization.itertracks(yield_label=True):
         segments.append(
-            {"start": turn.start, "end": turn.end, "speaker_id": speaker}
+            {"start": turn.start, "end": turn.end, "speaker_id": speaker},
         )
 
     # Sort by start time
@@ -178,7 +178,7 @@ def diarize_command(
         if idx < num_main:
             role = f"MAIN_{idx + 1}"
             main_speakers.append(
-                {"role": role, "speaker_id": speaker_id, "seconds": round(seconds, 1)}
+                {"role": role, "speaker_id": speaker_id, "seconds": round(seconds, 1)},
             )
         else:
             other_speakers.append({"speaker_id": speaker_id, "seconds": round(seconds, 1)})
@@ -198,7 +198,7 @@ def diarize_command(
     logger.info(f"Saved speaker map to {map_file}")
     logger.info(
         f"Identified {len(main_speakers)} main speaker(s) "
-        f"and {len(other_speakers)} other(s)"
+        f"and {len(other_speakers)} other(s)",
     )
 
     # Display results
@@ -209,19 +209,19 @@ def diarize_command(
     for speaker in main_speakers:
         console.print(
             f"  • [bold]{speaker['role']}:[/bold] "
-            f"{speaker['speaker_id']} ({speaker['seconds']}s)"
+            f"{speaker['speaker_id']} ({speaker['seconds']}s)",
         )
 
     if other_speakers:
         console.print(f"[bold]Other speakers:[/bold] {len(other_speakers)}")
         for speaker in other_speakers[:3]:  # Show first 3
             console.print(
-                f"  • {speaker['speaker_id']} ({speaker['seconds']}s)"
+                f"  • {speaker['speaker_id']} ({speaker['seconds']}s)",
             )
         if len(other_speakers) > 3:
             console.print(f"  • ...and {len(other_speakers) - 3} more")
 
     console.print(
         f"\n[dim]Run 'vodtool diarize-review {project_path}' "
-        "to classify background speakers[/dim]"
+        "to classify background speakers[/dim]",
     )

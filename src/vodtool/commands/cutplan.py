@@ -139,7 +139,7 @@ def identify_span_topic(
 
 
 def generate_cutplan(
-    project_path: Path, topic: str, source: str = "auto"
+    project_path: Path, topic: str, source: str = "auto",
 ) -> Optional[Path]:
     """
     Generate a cut plan for extracting a specific topic.
@@ -189,7 +189,7 @@ def generate_cutplan(
         else:
             expected = source_map[source][0]
             console.print(f"[red]Error: {expected} not found[/red]")
-            console.print(f"Run the appropriate command to generate it first.")
+            console.print("Run the appropriate command to generate it first.")
         return None
 
     # Load metadata for total duration

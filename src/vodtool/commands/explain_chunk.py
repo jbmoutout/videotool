@@ -91,7 +91,7 @@ def find_chunk_topic(topics: list[dict], chunk_id: str) -> Optional[dict]:
 
 
 def compute_topic_centroid(
-    topic: dict, embeddings: dict[str, tuple[np.ndarray, dict]]
+    topic: dict, embeddings: dict[str, tuple[np.ndarray, dict]],
 ) -> Optional[np.ndarray]:
     """
     Compute the centroid embedding for a topic.
@@ -125,7 +125,7 @@ def compute_topic_centroid(
 
 
 def explain_chunk_command(
-    project_path: Path, chunk_id: str, top_n: int = 3
+    project_path: Path, chunk_id: str, top_n: int = 3,
 ) -> Optional[dict]:
     """
     Explain why a chunk belongs to its assigned topic.
@@ -222,16 +222,16 @@ def explain_chunk_command(
     console.print(f"\n[bold cyan]Chunk: {chunk_id}[/bold cyan]")
     console.print(
         f"[dim]Time: {format_timestamp(target_meta['start'])} – "
-        f"{format_timestamp(target_meta['end'])}[/dim]"
+        f"{format_timestamp(target_meta['end'])}[/dim]",
     )
     if target_meta.get("speaker"):
         console.print(f"[dim]Speaker: {target_meta['speaker']}[/dim]")
 
-    console.print(f"\n[bold]Text:[/bold]")
+    console.print("\n[bold]Text:[/bold]")
     console.print(f"  \"{target_meta['text']}\"")
 
     # Assigned topic
-    console.print(f"\n[bold]Assigned Topic:[/bold]")
+    console.print("\n[bold]Assigned Topic:[/bold]")
     if assigned_topic:
         topic_label = assigned_topic.get("label", assigned_topic["topic_id"])
         # Find similarity to assigned topic
@@ -240,7 +240,7 @@ def explain_chunk_command(
             assigned_sim = cosine_similarity(target_embedding, assigned_centroid)
             console.print(
                 f"  {assigned_topic['topic_id']} ({topic_label}) — "
-                f"similarity: {assigned_sim:.3f}"
+                f"similarity: {assigned_sim:.3f}",
             )
         else:
             console.print(f"  {assigned_topic['topic_id']} ({topic_label})")
@@ -264,8 +264,14 @@ def explain_chunk_command(
         if assigned_topic and other_topic and other_topic["topic_id"] == assigned_topic["topic_id"]:
             topic_str = f"[green]{topic_str}[/green]"
 
-        time_str = f"{format_timestamp(other_meta['start'])}–{format_timestamp(other_meta['end'])}"
-        text_preview = other_meta["text"][:47] + "..." if len(other_meta["text"]) > 50 else other_meta["text"]
+        time_str = (
+            f"{format_timestamp(other_meta['start'])}–{format_timestamp(other_meta['end'])}"
+        )
+        text_preview = (
+            other_meta["text"][:47] + "..."
+            if len(other_meta["text"]) > 50
+            else other_meta["text"]
+        )
 
         chunk_table.add_row(other_id, f"{sim:.3f}", topic_str, time_str, text_preview)
 
@@ -291,25 +297,25 @@ def explain_chunk_command(
     console.print(topic_table)
 
     # Analysis
-    console.print(f"\n[bold]Analysis:[/bold]")
+    console.print("\n[bold]Analysis:[/bold]")
 
     if assigned_topic:
         # Check if assigned topic is the most similar
         if top_topics and top_topics[0][0]["topic_id"] == assigned_topic["topic_id"]:
             console.print(
-                "  [green]✓ Chunk is assigned to its most similar topic[/green]"
+                "  [green]✓ Chunk is assigned to its most similar topic[/green]",
             )
         else:
             # Find rank of assigned topic
-            for rank, (topic, sim) in enumerate(topic_similarities):
+            for rank, (topic, _sim) in enumerate(topic_similarities):
                 if topic["topic_id"] == assigned_topic["topic_id"]:
                     console.print(
-                        f"  [yellow]Assigned topic ranks #{rank + 1} by similarity[/yellow]"
+                        f"  [yellow]Assigned topic ranks #{rank + 1} by similarity[/yellow]",
                     )
                     if top_topics:
                         console.print(
                             f"  [dim]Most similar topic: {top_topics[0][0]['topic_id']} "
-                            f"(sim: {top_topics[0][1]:.3f})[/dim]"
+                            f"(sim: {top_topics[0][1]:.3f})[/dim]",
                         )
                     break
 
@@ -322,7 +328,7 @@ def explain_chunk_command(
             == assigned_topic["topic_id"]
         )
         console.print(
-            f"  {same_topic_count}/{top_n} nearest chunks share the same topic"
+            f"  {same_topic_count}/{top_n} nearest chunks share the same topic",
         )
 
     console.print()

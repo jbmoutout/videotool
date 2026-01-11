@@ -23,7 +23,7 @@ def format_timestamp(seconds: float) -> str:
 
 
 def show_topics_command(
-    project_path: Path, include_misc: bool = False
+    project_path: Path, include_misc: bool = False,
 ) -> Optional[list[dict]]:
     """
     Display a chronological timeline of topic spans.
@@ -109,7 +109,7 @@ def show_topics_command(
                     "total_spans": len(topic["spans"]),
                     "chunk_count": len(span["chunk_ids"]),
                     "is_misc": is_misc,
-                }
+                },
             )
 
     # Sort by start time
@@ -124,7 +124,7 @@ def show_topics_command(
 
     if misc_topic_ids and not include_misc:
         console.print(
-            f"[dim]({len(misc_topic_ids)} MISC topics hidden, use --include-misc to show)[/dim]\n"
+            f"[dim]({len(misc_topic_ids)} MISC topics hidden, use --include-misc to show)[/dim]\n",
         )
 
     # Print timeline
@@ -176,7 +176,7 @@ def show_topics_command(
                 "chunk_count": span["chunk_count"],
                 "is_return": is_return,
                 "is_misc": span["is_misc"],
-            }
+            },
         )
 
     # Print summary
@@ -191,7 +191,7 @@ def show_topics_command(
     if topics_with_returns:
         console.print(
             f"[green]✓ {len(topics_with_returns)} topic(s) have returns "
-            f"(appear multiple times)[/green]"
+            f"(appear multiple times)[/green]",
         )
     else:
         console.print("[yellow]No topic returns detected[/yellow]")

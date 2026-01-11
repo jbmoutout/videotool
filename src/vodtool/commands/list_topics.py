@@ -24,7 +24,7 @@ def format_timestamp(seconds: float) -> str:
 
 
 def list_topics_command(
-    project_path: Path, source: str = "auto"
+    project_path: Path, source: str = "auto",
 ) -> Optional[list[dict]]:
     """
     Display topics with labels, summaries, and durations.
@@ -137,6 +137,8 @@ def list_topics_command(
                 console.print()
 
     # Summary line
-    console.print(f"[dim]Total: {len(topics_sorted)} topics, {format_timestamp(total_duration)}[/dim]")
+    console.print(
+        f"[dim]Total: {len(topics_sorted)} topics, {format_timestamp(total_duration)}[/dim]",
+    )
 
     return topics_sorted

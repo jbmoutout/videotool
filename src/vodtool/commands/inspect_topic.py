@@ -21,8 +21,7 @@ def format_duration(seconds: float) -> str:
 
     if hours > 0:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    else:
-        return f"{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
 
 
 def load_chunk_data(db_path: Path, chunk_ids: list[str]) -> list[dict]:
@@ -99,7 +98,7 @@ def load_embeddings(db_path: Path, chunk_ids: list[str]) -> dict[str, np.ndarray
 
 
 def find_most_central_chunks(
-    chunk_ids: list[str], embeddings: dict[str, np.ndarray], n: int = 5
+    chunk_ids: list[str], embeddings: dict[str, np.ndarray], n: int = 5,
 ) -> list[str]:
     """
     Find the most central chunks based on average cosine similarity to all others.
@@ -197,7 +196,7 @@ def inspect_topic_command(project_path: Path, topic_id: str) -> None:
 
     if topic is None:
         console.print(f"[red]Error: Topic '{topic_id}' not found[/red]")
-        console.print(f"\nAvailable topics:")
+        console.print("\nAvailable topics:")
         for t in topics:
             label = t.get("label", "Unlabeled")
             console.print(f"  - {t['topic_id']}: {label}")
@@ -239,14 +238,14 @@ def inspect_topic_command(project_path: Path, topic_id: str) -> None:
     label = topic.get("label", "Unlabeled")
     console.print(f"[bold]Label:[/bold] {label}")
 
-    console.print(f"\n[bold]Statistics:[/bold]")
+    console.print("\n[bold]Statistics:[/bold]")
     console.print(f"  Total chunks: {len(chunks)}")
     console.print(f"  Total duration: {format_duration(total_duration)} ({total_duration:.1f}s)")
     console.print(f"  Number of spans: {len(topic['spans'])}")
     console.print(f"  Average chunk duration: {format_duration(total_duration / len(chunks))}")
 
     # Display spans
-    console.print(f"\n[bold]Spans:[/bold]")
+    console.print("\n[bold]Spans:[/bold]")
     spans_table = Table(show_header=True, header_style="bold magenta")
     spans_table.add_column("#", style="dim", width=3)
     spans_table.add_column("Start", justify="right")
@@ -267,15 +266,23 @@ def inspect_topic_command(project_path: Path, topic_id: str) -> None:
     console.print(spans_table)
 
     # Display 5 most central chunks
-    console.print(f"\n[bold]5 Most Central Chunks (semantically representative):[/bold]")
+    console.print("\n[bold]5 Most Central Chunks (semantically representative):[/bold]")
     for idx, chunk in enumerate(central_chunks, 1):
-        console.print(f"\n[cyan]{idx}. [{chunk['chunk_id']}] {format_duration(chunk['start'])} - {format_duration(chunk['end'])} ({chunk['duration']:.1f}s)[/cyan]")
+        time_range = (
+            f"{format_duration(chunk['start'])} - "
+            f"{format_duration(chunk['end'])} ({chunk['duration']:.1f}s)"
+        )
+        console.print(f"\n[cyan]{idx}. [{chunk['chunk_id']}] {time_range}[/cyan]")
         console.print(f"   {chunk['text'][:200]}{'...' if len(chunk['text']) > 200 else ''}")
 
     # Display 5 longest chunks
-    console.print(f"\n[bold]5 Longest Chunks:[/bold]")
+    console.print("\n[bold]5 Longest Chunks:[/bold]")
     for idx, chunk in enumerate(longest_chunks, 1):
-        console.print(f"\n[cyan]{idx}. [{chunk['chunk_id']}] {format_duration(chunk['start'])} - {format_duration(chunk['end'])} ({chunk['duration']:.1f}s)[/cyan]")
+        time_range = (
+            f"{format_duration(chunk['start'])} - "
+            f"{format_duration(chunk['end'])} ({chunk['duration']:.1f}s)"
+        )
+        console.print(f"\n[cyan]{idx}. [{chunk['chunk_id']}] {time_range}[/cyan]")
         console.print(f"   {chunk['text'][:200]}{'...' if len(chunk['text']) > 200 else ''}")
 
-    console.print(f"\n[green]✓ Topic inspection complete![/green]")
+    console.print("\n[green]✓ Topic inspection complete![/green]")

@@ -252,7 +252,7 @@ def pipeline(
     input_video_path: Path = typer.Argument(..., help="Path to input video file"),
     whisper_model: str = typer.Option("small", "--whisper-model", help="Whisper model size"),
     language: Optional[str] = typer.Option(
-        None, "--language", help="Language code (auto-detect if not specified)"
+        None, "--language", help="Language code (auto-detect if not specified)",
     ),
     max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topics"),
     with_diarize: bool = typer.Option(False, "--diarize", help="Include speaker diarization"),
@@ -340,7 +340,7 @@ def inspect_topic(
 def show_topics(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     include_misc: bool = typer.Option(
-        False, "--include-misc", help="Include MISC bucket topics (short/singleton)"
+        False, "--include-misc", help="Include MISC bucket topics (short/singleton)",
     ),
 ):
     """
@@ -372,7 +372,7 @@ def explain_chunk(
 def llm_topics_cmd(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     max_topics: Optional[int] = typer.Option(
-        None, "--max-topics", help="Maximum number of topics (optional)"
+        None, "--max-topics", help="Maximum number of topics (optional)",
     ),
 ):
     """
