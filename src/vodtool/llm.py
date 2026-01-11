@@ -18,15 +18,11 @@ def get_anthropic_client():
     try:
         from anthropic import Anthropic
     except ImportError:
-        raise ImportError(
-            "anthropic package not installed. Run: pip install anthropic"
-        )
+        raise ImportError("anthropic package not installed. Run: pip install anthropic")
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise ValueError(
-            "ANTHROPIC_API_KEY not set. Add to .env file or set environment variable."
-        )
+        raise ValueError("ANTHROPIC_API_KEY not set. Add to .env file or set environment variable.")
 
     return Anthropic(api_key=api_key)
 
@@ -49,10 +45,7 @@ def segment_topics_with_llm(
     """
     # Format chunks for the prompt
     chunks_text = "\n".join(
-        [
-            f"[{c['id']}] ({c['start']:.1f}s - {c['end']:.1f}s): {c['text']}"
-            for c in chunks
-        ]
+        [f"[{c['id']}] ({c['start']:.1f}s - {c['end']:.1f}s): {c['text']}" for c in chunks]
     )
 
     max_topics_instruction = ""
@@ -65,9 +58,9 @@ TRANSCRIPT (with chunk IDs and timestamps):
 {chunks_text}
 
 Return a JSON array of topics. Each topic should have:
-- "label": A short descriptive label (3-6 words)
+- "label": A short, punchy label (3-6 words) in the host's voice/slang
 - "chunk_ids": Array of chunk IDs that belong to this topic (e.g., ["chunk_0000", "chunk_0001"])
-- "summary": One sentence describing what's discussed
+- "summary": A FACTUAL one-sentence description using the host's vocabulary and energy
 
 Rules:
 - Topics should be coherent subjects/themes, not arbitrary splits
@@ -75,7 +68,14 @@ Rules:
 - Every chunk ID must belong to exactly one topic
 - Prefer fewer, broader topics over many small ones
 - Don't split mid-conversation just because vocabulary changes
-- Generate the "label" and "summary" in the same language as the transcript{max_topics_instruction}
+- Generate the "label" and "summary" in the same language as the transcript
+- Use the host's slang, expressions, and vocabulary from the transcript
+
+CRITICAL for summaries - FACTUAL but with the host's voice:
+- Describe WHAT the topic contains, not what the host does
+- NEVER use first person (I, we, my, our, etc. in any language)
+- NEVER describe host actions (watches, shows, reacts, talks about, discovers, etc.)
+- BUT keep the host's tone, slang, and energy in the wording{max_topics_instruction}
 
 Return ONLY the JSON array, no other text or markdown formatting."""
 
