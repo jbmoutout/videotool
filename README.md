@@ -225,11 +225,16 @@ Source options:
 When diarization is used, topic analysis automatically filters to main speakers only, excluding background audio and other speakers.
 
 ### Debug & Inspection
+- `list-topics` - List all topics with labels, durations, and summaries (use `--source llm|labeled|basic|auto`)
 - `show-topics` - Display chronological timeline of topic spans, showing when topics appear and return
 - `explain-chunk` - Explain why a chunk belongs to its topic (shows nearest neighbors by similarity)
 - `inspect-topic` - Deep inspection of a specific topic with statistics and representative chunks
 
 ```bash
+# List topics with labels and summaries (auto-prefers LLM topics)
+vodtool list-topics projects/<project-id>
+vodtool list-topics projects/<project-id> --source labeled
+
 # View topic timeline (MISC topics hidden by default)
 vodtool show-topics projects/<project-id>
 vodtool show-topics projects/<project-id> --include-misc

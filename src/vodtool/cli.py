@@ -18,6 +18,7 @@ from vodtool.commands.export import export_video
 from vodtool.commands.ingest import ingest_video
 from vodtool.commands.inspect_topic import inspect_topic_command
 from vodtool.commands.label_topics import label_topics_command
+from vodtool.commands.list_topics import list_topics_command
 from vodtool.commands.llm_topics import llm_topics
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.show_topics import show_topics_command
@@ -381,6 +382,26 @@ def llm_topics_cmd(
     Analyzes chunks directly with Claude and returns structured topic list.
     """
     result = llm_topics(project_path, max_topics)
+    if result is None:
+        raise typer.Exit(code=1)
+
+
+@app.command(name="list-topics")
+def list_topics(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    source: str = typer.Option(
+        "auto",
+        "--source",
+        "-s",
+        help="Topic map source: 'llm', 'labeled', 'basic', or 'auto' (default)",
+    ),
+):
+    """
+    List all topics with labels, durations, and summaries.
+
+    Clean overview of detected topics. Auto-prefers LLM topics if available.
+    """
+    result = list_topics_command(project_path, source)
     if result is None:
         raise typer.Exit(code=1)
 
