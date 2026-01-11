@@ -45,7 +45,7 @@ def display_speaker_stats(
         speaker_stats[speaker_id]["segments"].append(duration)
 
     # Calculate avg segment length
-    for speaker_id, stats in speaker_stats.items():
+    for _speaker_id, stats in speaker_stats.items():
         stats["avg_segment_length"] = stats["total_time"] / stats["segment_count"]
 
     # Build current role mapping
@@ -105,19 +105,34 @@ def prompt_speaker_classification(speaker_map: dict) -> dict:
     all_speakers = []
     for main_speaker in speaker_map.get("main_speakers", []):
         all_speakers.append(
-            {"speaker_id": main_speaker["speaker_id"], "role": main_speaker["role"], "seconds": main_speaker["seconds"]}
+            {
+                "speaker_id": main_speaker["speaker_id"],
+                "role": main_speaker["role"],
+                "seconds": main_speaker["seconds"],
+            },
         )
     for bg_speaker in speaker_map.get("background_speakers", []):
         all_speakers.append(
-            {"speaker_id": bg_speaker["speaker_id"], "role": "BACKGROUND", "seconds": bg_speaker["seconds"]}
+            {
+                "speaker_id": bg_speaker["speaker_id"],
+                "role": "BACKGROUND",
+                "seconds": bg_speaker["seconds"],
+            },
         )
     for other_speaker in speaker_map.get("other_speakers", []):
         all_speakers.append(
-            {"speaker_id": other_speaker["speaker_id"], "role": "OTHER", "seconds": other_speaker["seconds"]}
+            {
+                "speaker_id": other_speaker["speaker_id"],
+                "role": "OTHER",
+                "seconds": other_speaker["seconds"],
+            },
         )
 
     # Prompt for background speakers
-    console.print("Enter speaker IDs to mark as BACKGROUND (comma-separated), or press Enter to skip:")
+    console.print(
+        "Enter speaker IDs to mark as BACKGROUND (comma-separated), "
+        "or press Enter to skip:",
+    )
     background_input = console.input("[bold cyan]> [/bold cyan]").strip()
 
     if not background_input:
@@ -138,7 +153,7 @@ def prompt_speaker_classification(speaker_map: dict) -> dict:
         if speaker_id in background_ids:
             # Mark as background
             new_background_speakers.append(
-                {"speaker_id": speaker_id, "seconds": speaker["seconds"]}
+                {"speaker_id": speaker_id, "seconds": speaker["seconds"]},
             )
             console.print(f"[green]✓[/green] Marked {speaker_id} as BACKGROUND")
         elif speaker.get("role", "").startswith("MAIN_"):
@@ -147,12 +162,12 @@ def prompt_speaker_classification(speaker_map: dict) -> dict:
         elif speaker.get("role") == "BACKGROUND":
             # Was background, keep unless reclassified
             new_background_speakers.append(
-                {"speaker_id": speaker_id, "seconds": speaker["seconds"]}
+                {"speaker_id": speaker_id, "seconds": speaker["seconds"]},
             )
         else:
             # Other speakers
             new_other_speakers.append(
-                {"speaker_id": speaker_id, "seconds": speaker["seconds"]}
+                {"speaker_id": speaker_id, "seconds": speaker["seconds"]},
             )
 
     # Rebuild main speaker roles based on remaining main speakers

@@ -29,7 +29,7 @@ def deserialize_vector(blob: bytes, dtype=np.float32) -> np.ndarray:
 
 
 def load_embeddings_from_db(
-    db_path: Path, model_name: str, filter_main_speakers: bool = True
+    db_path: Path, model_name: str, filter_main_speakers: bool = True,
 ) -> tuple[list[str], np.ndarray]:
     """
     Load embeddings from SQLite database.

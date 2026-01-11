@@ -61,7 +61,7 @@ def build_topic_map(
                             "start": current_span_chunks[0]["start"],
                             "end": current_span_chunks[-1]["end"],
                             "chunk_ids": [c["id"] for c in current_span_chunks],
-                        }
+                        },
                     )
                     current_span_chunks = [chunk]
 
@@ -72,7 +72,7 @@ def build_topic_map(
                     "start": current_span_chunks[0]["start"],
                     "end": current_span_chunks[-1]["end"],
                     "chunk_ids": [c["id"] for c in current_span_chunks],
-                }
+                },
             )
 
         # Calculate duration
@@ -88,7 +88,7 @@ def build_topic_map(
                 "duration_seconds": duration,
                 "duration_label": f"{int(duration // 60)} min",
                 "chunk_count": len(chunk_ids),
-            }
+            },
         )
 
     return topic_map
@@ -172,13 +172,13 @@ def llm_topics(
 
     if missing:
         console.print(
-            f"[yellow]Warning: {len(missing)} chunks not assigned to any topic[/yellow]"
+            f"[yellow]Warning: {len(missing)} chunks not assigned to any topic[/yellow]",
         )
         logger.warning(f"Unassigned chunks: {missing}")
 
     if extra:
         console.print(
-            f"[yellow]Warning: {len(extra)} chunk IDs from LLM not in chunks.json[/yellow]"
+            f"[yellow]Warning: {len(extra)} chunk IDs from LLM not in chunks.json[/yellow]",
         )
         logger.warning(f"Unknown chunk IDs: {extra}")
 

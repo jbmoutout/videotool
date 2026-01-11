@@ -156,7 +156,6 @@ def assign_speakers_to_chunks(
     for chunk in chunks:
         chunk_start = chunk["start"]
         chunk_end = chunk["end"]
-        chunk_duration = chunk_end - chunk_start
 
         best_speaker_id = None
         max_overlap = 0.0

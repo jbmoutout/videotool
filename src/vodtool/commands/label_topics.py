@@ -313,7 +313,7 @@ def label_topics_command(project_path: Path, force: bool = False) -> Optional[Pa
 
         logger.info(
             f"{topic['topic_id']}: {topic['duration_label']}, "
-            f"{len(quotes)} quotes, misc={topic['is_misc']}"
+            f"{len(quotes)} quotes, misc={topic['is_misc']}",
         )
 
     # Save labeled topic map
@@ -346,7 +346,7 @@ def label_topics_command(project_path: Path, force: bool = False) -> Optional[Pa
 
     if misc_topics:
         console.print(
-            f"[dim]+ {len(misc_topics)} MISC topic(s) hidden " f"(< 90s or < 3 chunks)[/dim]"
+            f"[dim]+ {len(misc_topics)} MISC topic(s) hidden (< 90s or < 3 chunks)[/dim]",
         )
         console.print("[dim]  Use 'vodtool show-topics --include-misc' to view[/dim]\n")
 

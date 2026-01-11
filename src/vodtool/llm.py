@@ -17,8 +17,10 @@ def get_anthropic_client():
     """Get Anthropic client, raising clear error if API key missing."""
     try:
         from anthropic import Anthropic
-    except ImportError:
-        raise ImportError("anthropic package not installed. Run: pip install anthropic")
+    except ImportError as e:
+        raise ImportError(
+            "anthropic package not installed. Run: pip install anthropic",
+        ) from e
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
@@ -45,7 +47,7 @@ def segment_topics_with_llm(
     """
     # Format chunks for the prompt
     chunks_text = "\n".join(
-        [f"[{c['id']}] ({c['start']:.1f}s - {c['end']:.1f}s): {c['text']}" for c in chunks]
+        [f"[{c['id']}] ({c['start']:.1f}s - {c['end']:.1f}s): {c['text']}" for c in chunks],
     )
 
     max_topics_instruction = ""
@@ -101,7 +103,7 @@ Return ONLY the JSON array, no other text or markdown formatting."""
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse LLM response as JSON: {e}")
         logger.error(f"Response was: {response_text[:500]}...")
-        raise ValueError(f"LLM returned invalid JSON: {e}")
+        raise ValueError(f"LLM returned invalid JSON: {e}") from e
 
     logger.info(f"LLM identified {len(topics)} topics")
 
