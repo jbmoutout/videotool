@@ -12,6 +12,31 @@ console = Console()
 logger = logging.getLogger("vodtool")
 
 
+def format_duration(seconds: float) -> str:
+    """
+    Format duration as human-readable string.
+
+    Shows seconds for < 60s, otherwise minutes or hours.
+    Examples: "45s", "2m 30s", "1h 15m"
+    """
+    if seconds < 60:
+        return f"{int(seconds)}s"
+
+    minutes = int(seconds // 60)
+    remaining_secs = int(seconds % 60)
+
+    if minutes >= 60:
+        hours = minutes // 60
+        mins = minutes % 60
+        if mins:
+            return f"{hours}h {mins}m"
+        return f"{hours}h"
+
+    if remaining_secs:
+        return f"{minutes}m {remaining_secs}s"
+    return f"{minutes}m"
+
+
 def format_timestamp(seconds: float) -> str:
     """Format seconds as HH:MM:SS or MM:SS."""
     hours = int(seconds // 3600)
@@ -93,52 +118,34 @@ def list_topics_command(
     # Calculate total duration
     total_duration = sum(t.get("duration_seconds", 0) for t in topics_sorted)
 
-    # Print header
-    console.print()
-    console.print(f"[bold cyan]Topics[/bold cyan] [dim]({topic_map_path.name})[/dim]")
-    console.print()
+    # Print summary header
+    console.print(f"\n[green]✓ Topics loaded from {topic_map_path.name}[/green]")
+    console.print(f"[bold]Topics:[/bold] {len(topics_sorted)}")
+    console.print(f"[bold]Total Duration:[/bold] {format_duration(total_duration)}")
 
-    # Create table
-    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-    table.add_column("#", style="dim", width=4)
-    table.add_column("ID", style="cyan", width=12)
-    table.add_column("Duration", justify="right", width=8)
-    table.add_column("Label", width=40)
+    # Create table with same style as llm-topics
+    table = Table(title="Topics")
+    table.add_column("ID", style="cyan")
+    table.add_column("Label", style="green")
+    table.add_column("Duration", style="yellow", justify="right")
+    table.add_column("Chunks", style="blue", justify="right")
 
-    for i, topic in enumerate(topics_sorted):
+    for topic in topics_sorted:
         topic_id = topic["topic_id"]
         label = topic.get("label", "")
         duration = topic.get("duration_seconds", 0)
-        duration_str = format_timestamp(duration)
+        chunk_count = topic.get("chunk_count", len(topic.get("chunk_ids", [])))
+
+        # Use new format_duration for better display of short topics
+        duration_str = format_duration(duration)
 
         table.add_row(
-            str(i + 1),
             topic_id,
-            duration_str,
             label,
+            duration_str,
+            str(chunk_count),
         )
 
     console.print(table)
-    console.print()
-
-    # Print summaries if available (LLM topics have them)
-    has_summaries = any(topic.get("summary") for topic in topics_sorted)
-
-    if has_summaries:
-        console.print("[bold]Summaries:[/bold]")
-        console.print()
-        for topic in topics_sorted:
-            summary = topic.get("summary", "")
-            if summary:
-                topic_id = topic["topic_id"]
-                label = topic.get("label", topic_id)
-                console.print(f"[cyan]{topic_id}[/cyan] {label}")
-                console.print(f"  [dim]{summary}[/dim]")
-                console.print()
-
-    # Summary line
-    console.print(
-        f"[dim]Total: {len(topics_sorted)} topics, {format_timestamp(total_duration)}[/dim]",
-    )
 
     return topics_sorted
