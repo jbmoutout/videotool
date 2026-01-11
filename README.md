@@ -155,7 +155,7 @@ vodtool transcribe projects/<project-id> --language es
 Control the maximum number of topics detected:
 
 ```bash
-# Default: 8 topics
+# Default: 4 topics
 vodtool segment-topics projects/<project-id>
 vodtool topics projects/<project-id>
 
