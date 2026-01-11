@@ -12,6 +12,164 @@ console = Console()
 logger = logging.getLogger("vodtool")
 
 
+def format_duration(seconds: float) -> str:
+    """
+    Format duration as human-readable string.
+
+    Shows seconds for < 60s, otherwise minutes or hours.
+    Examples: "45s", "2m 30s", "1h 15m"
+    """
+    if seconds < 60:
+        return f"{int(seconds)}s"
+
+    minutes = int(seconds // 60)
+    remaining_secs = int(seconds % 60)
+
+    if minutes >= 60:
+        hours = minutes // 60
+        mins = minutes % 60
+        if mins:
+            return f"{hours}h {mins}m"
+        return f"{hours}h"
+
+    if remaining_secs:
+        return f"{minutes}m {remaining_secs}s"
+    return f"{minutes}m"
+
+
+def validate_topic_map(
+    topic_map: list[dict],
+    chunks: list[dict],
+) -> dict[str, any]:
+    """
+    Validate topic map integrity and compute statistics.
+
+    Enforces invariants:
+    1. Every chunk assigned exactly once
+    2. Topic spans are time-ordered
+    3. No overlapping spans within a topic
+    4. Duration = sum of span durations
+
+    Args:
+        topic_map: List of topics with spans and chunk_ids
+        chunks: Original chunks list
+
+    Returns:
+        Dict with validation results:
+        {
+            "valid": bool,
+            "errors": list[str],
+            "warnings": list[str],
+            "stats": {
+                "total_chunks": int,
+                "assigned_chunks": int,
+                "unassigned_chunks": list[str],
+                "duplicate_chunks": list[str],
+                "total_duration": float,
+                "topic_durations": list[float],
+            }
+        }
+    """
+    errors = []
+    warnings = []
+
+    # Build chunk lookup
+    all_chunk_ids = {c["id"] for c in chunks}
+    chunk_by_id = {c["id"]: c for c in chunks}
+
+    # Track chunk assignments
+    chunk_assignments: dict[str, list[str]] = {}  # chunk_id -> [topic_ids]
+
+    total_duration = 0.0
+    topic_durations = []
+
+    for topic in topic_map:
+        topic_id = topic["topic_id"]
+        spans = topic["spans"]
+        chunk_ids = topic["chunk_ids"]
+        duration = topic.get("duration_seconds", 0)
+
+        # Check chunk assignments
+        for chunk_id in chunk_ids:
+            if chunk_id not in all_chunk_ids:
+                errors.append(f"{topic_id}: references unknown chunk {chunk_id}")
+            else:
+                chunk_assignments.setdefault(chunk_id, []).append(topic_id)
+
+        # Validate spans are time-ordered and non-overlapping
+        prev_end = None
+
+        for i, span in enumerate(spans):
+            start = span["start"]
+            end = span["end"]
+
+            if start >= end:
+                errors.append(f"{topic_id} span {i}: start >= end ({start} >= {end})")
+
+            if prev_end is not None and start < prev_end:
+                errors.append(f"{topic_id} span {i}: overlaps previous span ({start} < {prev_end})")
+
+            prev_end = end
+
+        # Validate duration matches sum of chunk durations (not span boundaries)
+        chunk_duration = sum(
+            chunk_by_id[cid]["end"] - chunk_by_id[cid]["start"]
+            for cid in chunk_ids
+            if cid in chunk_by_id
+        )
+        duration_diff = abs(duration - chunk_duration)
+        if duration_diff > 0.01:  # Allow 0.01s floating-point tolerance
+            errors.append(
+                f"{topic_id}: duration_seconds ({duration:.2f}) != sum of chunks ({chunk_duration:.2f})",
+            )
+
+        total_duration += chunk_duration
+        topic_durations.append(chunk_duration)
+
+    # Find unassigned and duplicate chunks
+    unassigned = []
+    duplicates = []
+
+    for chunk_id in all_chunk_ids:
+        assignments = chunk_assignments.get(chunk_id, [])
+        if not assignments:
+            unassigned.append(chunk_id)
+        elif len(assignments) > 1:
+            duplicates.append(f"{chunk_id} assigned to {len(assignments)} topics: {assignments}")
+
+    if unassigned:
+        warnings.append(f"{len(unassigned)} chunks not assigned to any topic")
+
+    if duplicates:
+        errors.append(f"{len(duplicates)} chunks assigned to multiple topics")
+        for dup in duplicates[:5]:  # Show first 5
+            errors.append(f"  {dup}")
+
+    # Compute stream total for comparison
+    stream_duration = sum(c["end"] - c["start"] for c in chunks)
+
+    if abs(total_duration - stream_duration) > 1.0:  # Allow 1s tolerance
+        warnings.append(
+            f"Topic total ({total_duration:.1f}s) != stream total ({stream_duration:.1f}s), "
+            f"diff: {abs(total_duration - stream_duration):.1f}s",
+        )
+
+    return {
+        "valid": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+        "stats": {
+            "total_chunks": len(all_chunk_ids),
+            "assigned_chunks": len(chunk_assignments),
+            "unassigned_chunks": unassigned,
+            "duplicate_chunks": duplicates,
+            "total_duration": total_duration,
+            "stream_duration": stream_duration,
+            "topic_durations": topic_durations,
+        },
+    }
+
+
 def build_topic_map(
     llm_topics: list[dict],
     chunks: list[dict],
@@ -75,8 +233,13 @@ def build_topic_map(
                 },
             )
 
-        # Calculate duration
-        duration = sum(s["end"] - s["start"] for s in spans)
+        # Calculate duration: sum of actual chunk durations (not span boundaries)
+        # This correctly handles gaps between chunks within spans
+        duration = sum(
+            chunk_by_id[cid]["end"] - chunk_by_id[cid]["start"]
+            for cid in chunk_ids
+            if cid in chunk_by_id
+        )
 
         topic_map.append(
             {
@@ -86,7 +249,7 @@ def build_topic_map(
                 "spans": spans,
                 "chunk_ids": chunk_ids,
                 "duration_seconds": duration,
-                "duration_label": f"{int(duration // 60)} min",
+                "duration_label": format_duration(duration),
                 "chunk_count": len(chunk_ids),
             },
         )
@@ -97,6 +260,8 @@ def build_topic_map(
 def llm_topics(
     project_path: Path,
     max_topics: Optional[int] = None,
+    provider: str = "auto",
+    model: Optional[str] = None,
 ) -> Optional[Path]:
     """
     Use LLM to segment transcript into topics.
@@ -104,6 +269,8 @@ def llm_topics(
     Args:
         project_path: Path to the project directory
         max_topics: Optional maximum number of topics
+        provider: LLM provider ("anthropic", "ollama", or "auto")
+        model: Optional model override (e.g., "qwen2.5:3b" for Ollama)
 
     Returns:
         Path to the topic_map_llm.json file, or None if failed
@@ -136,51 +303,85 @@ def llm_topics(
     logger.info(f"Loaded {len(chunks)} chunks")
     console.print(f"[cyan]Loaded {len(chunks)} chunks[/cyan]")
 
-    # Get LLM client
-    console.print("[cyan]Connecting to Anthropic API...[/cyan]")
-    try:
-        from vodtool.llm import get_anthropic_client, segment_topics_with_llm
+    # Call LLM for topic segmentation based on provider
+    llm_result = None
 
-        client = get_anthropic_client()
-    except ImportError as e:
-        console.print(f"[red]Error: {e}[/red]")
-        return None
-    except ValueError as e:
-        console.print(f"[red]Error: {e}[/red]")
-        return None
+    if provider == "auto":
+        # Try Ollama first, fall back to Anthropic
+        console.print("[cyan]Attempting local LLM (Ollama)...[/cyan]")
+        try:
+            from vodtool.llm import segment_topics_with_local_llm
 
-    # Call LLM for topic segmentation
-    console.print("[cyan]Analyzing transcript with LLM (this may take a moment)...[/cyan]")
-    try:
-        llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics)
-    except Exception as e:
-        console.print(f"[red]Error calling LLM: {e}[/red]")
+            llm_result = segment_topics_with_local_llm(
+                chunks,
+                model=model or "qwen2.5:3b",
+                max_topics=max_topics,
+            )
+            console.print("[green]✓ Used local LLM (Ollama)[/green]")
+        except (ImportError, ConnectionError) as e:
+            console.print(f"[yellow]⚠ Local LLM unavailable: {e}[/yellow]")
+            console.print("[cyan]→ Falling back to Anthropic API...[/cyan]")
+
+            try:
+                from vodtool.llm import get_anthropic_client, segment_topics_with_llm
+
+                client = get_anthropic_client()
+                llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics)
+                console.print("[green]✓ Used Anthropic API[/green]")
+            except Exception as api_error:
+                console.print(f"[red]Error calling Anthropic API: {api_error}[/red]")
+                return None
+
+    elif provider == "ollama":
+        # Force Ollama
+        console.print("[cyan]Connecting to local LLM (Ollama)...[/cyan]")
+        try:
+            from vodtool.llm import segment_topics_with_local_llm
+
+            llm_result = segment_topics_with_local_llm(
+                chunks,
+                model=model or "qwen2.5:3b",
+                max_topics=max_topics,
+            )
+            console.print("[green]✓ Used local LLM (Ollama)[/green]")
+        except Exception as e:
+            console.print(f"[red]Error calling local LLM: {e}[/red]")
+            return None
+
+    elif provider == "anthropic":
+        # Force Anthropic
+        console.print("[cyan]Connecting to Anthropic API...[/cyan]")
+        try:
+            from vodtool.llm import get_anthropic_client, segment_topics_with_llm
+
+            client = get_anthropic_client()
+            llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics)
+            console.print("[green]✓ Used Anthropic API[/green]")
+        except Exception as e:
+            console.print(f"[red]Error calling Anthropic API: {e}[/red]")
+            return None
+
+    if llm_result is None:
+        console.print("[red]Error: Failed to get LLM response[/red]")
         return None
 
     # Build topic map
     console.print("[cyan]Building topic map...[/cyan]")
     topic_map = build_topic_map(llm_result, chunks)
 
-    # Validate coverage
-    all_chunk_ids = {c["id"] for c in chunks}
-    assigned_chunk_ids = set()
-    for topic in topic_map:
-        assigned_chunk_ids.update(topic["chunk_ids"])
+    # Validate topic map
+    console.print("[cyan]Validating topic map...[/cyan]")
+    validation = validate_topic_map(topic_map, chunks)
 
-    missing = all_chunk_ids - assigned_chunk_ids
-    extra = assigned_chunk_ids - all_chunk_ids
+    if validation["errors"]:
+        console.print("[red]✗ Topic map validation failed:[/red]")
+        for error in validation["errors"]:
+            console.print(f"  [red]• {error}[/red]")
+        return None
 
-    if missing:
-        console.print(
-            f"[yellow]Warning: {len(missing)} chunks not assigned to any topic[/yellow]",
-        )
-        logger.warning(f"Unassigned chunks: {missing}")
-
-    if extra:
-        console.print(
-            f"[yellow]Warning: {len(extra)} chunk IDs from LLM not in chunks.json[/yellow]",
-        )
-        logger.warning(f"Unknown chunk IDs: {extra}")
+    if validation["warnings"]:
+        for warning in validation["warnings"]:
+            console.print(f"[yellow]⚠ {warning}[/yellow]")
 
     # Save topic map
     output_path = project_path / "topic_map_llm.json"
@@ -195,16 +396,22 @@ def llm_topics(
         return None
 
     # Print summary
+    stats = validation["stats"]
+    total_duration = stats["total_duration"]
+    stream_duration = stats["stream_duration"]
+
     console.print("\n[green]✓ LLM topic segmentation complete![/green]")
     console.print(f"[bold]Topics:[/bold] {len(topic_map)}")
+    console.print(f"[bold]Total Duration:[/bold] {format_duration(total_duration)}")
+    console.print(f"[bold]Coverage:[/bold] {stats['assigned_chunks']}/{stats['total_chunks']} chunks")
     console.print(f"[bold]Output:[/bold] {output_path}")
 
     # Print topic table
     table = Table(title="Topics Identified")
     table.add_column("ID", style="cyan")
     table.add_column("Label", style="green")
-    table.add_column("Duration", style="yellow")
-    table.add_column("Chunks", style="blue")
+    table.add_column("Duration", style="yellow", justify="right")
+    table.add_column("Chunks", style="blue", justify="right")
 
     for topic in topic_map:
         table.add_row(
