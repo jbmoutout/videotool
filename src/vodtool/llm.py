@@ -74,7 +74,8 @@ Rules:
 - A topic can have non-contiguous chunks (if speaker returns to a subject)
 - Every chunk ID must belong to exactly one topic
 - Prefer fewer, broader topics over many small ones
-- Don't split mid-conversation just because vocabulary changes{max_topics_instruction}
+- Don't split mid-conversation just because vocabulary changes
+- Generate the "label" and "summary" in the same language as the transcript{max_topics_instruction}
 
 Return ONLY the JSON array, no other text or markdown formatting."""
 

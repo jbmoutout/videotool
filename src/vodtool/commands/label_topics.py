@@ -149,34 +149,62 @@ def find_representative_chunks(
     return [chunk for chunk, _ in centrality_scores[:n]]
 
 
-def extract_quote(text: str, max_length: int = 80) -> str:
+def extract_quote(text: str, min_length: int = 40, max_length: int = 120) -> str:
     """
-    Extract a clean quote from chunk text.
+    Extract the best sentence or phrase from chunk text.
+
+    Strategy:
+    1. Split text into sentences
+    2. Find the first complete sentence that's long enough
+    3. If no good sentence, take the first meaningful phrase
 
     Args:
         text: Raw chunk text
-        max_length: Maximum length of quote
+        min_length: Minimum length for a good quote
+        max_length: Maximum length before truncating
 
     Returns:
         Cleaned quote string
     """
-    # Clean up the text
-    text = text.strip()
+    import re
 
-    # Try to find a sentence boundary
+    # Clean up the text - normalize whitespace
+    text = " ".join(text.split())
+
+    if not text:
+        return ""
+
+    # If text is already short enough, return it
     if len(text) <= max_length:
         return text
 
-    # Look for sentence end within limit
-    for punct in [". ", "! ", "? "]:
-        idx = text[:max_length].rfind(punct)
-        if idx > 20:  # At least 20 chars for a meaningful quote
-            return text[: idx + 1]
+    # Split into sentences using common sentence boundaries
+    # Handle French and English punctuation patterns
+    sentences = re.split(r'(?<=[.!?])\s+', text)
 
-    # Fall back to word boundary
+    # Find the first sentence that's meaningful (> min_length)
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if len(sentence) >= min_length:
+            if len(sentence) <= max_length:
+                return sentence
+            # Sentence too long - try to find a natural break
+            break
+
+    # No good complete sentence found - extract first meaningful portion
+    # Look for natural phrase boundaries (comma, dash, etc.)
+    phrase_breaks = [", ", " - ", " – ", ": ", "; "]
+
+    for break_char in phrase_breaks:
+        idx = text.find(break_char, min_length)
+        if min_length < idx < max_length:
+            return text[:idx + len(break_char) - 1]
+
+    # Last resort: find word boundary near max_length
     if len(text) > max_length:
+        # Look for last space before max_length
         idx = text[:max_length].rfind(" ")
-        if idx > 20:
+        if idx > min_length:
             return text[:idx] + "..."
 
     return text[:max_length] + "..."
