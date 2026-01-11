@@ -11,16 +11,18 @@ console = Console()
 logger = logging.getLogger("vodtool")
 
 
-def merge_nearby_spans(spans: list[dict], gap_threshold: float = 15.0) -> list[dict]:
+def merge_contiguous_spans(spans: list[dict]) -> list[dict]:
     """
-    Merge spans that are separated by less than gap_threshold seconds.
+    Merge all spans from a topic into contiguous ranges.
+
+    If we're keeping content before AND after a gap, the gap is part of the topic
+    (could be music, pauses, transitions). Don't drop it.
 
     Args:
         spans: List of spans with start/end times
-        gap_threshold: Maximum gap in seconds to merge across
 
     Returns:
-        List of merged spans
+        List of merged spans (usually just one continuous span)
     """
     if not spans:
         return []
@@ -33,17 +35,12 @@ def merge_nearby_spans(spans: list[dict], gap_threshold: float = 15.0) -> list[d
     for span in sorted_spans[1:]:
         last = merged[-1]
 
-        # Check if close enough to merge
-        gap = span["start"] - last["end"]
-
-        if gap <= gap_threshold:
-            # Merge: extend end time and combine chunk_ids
-            last["end"] = span["end"]
+        # Always extend to cover the gap - it's part of the topic
+        last["end"] = span["end"]
+        if "chunk_ids" in last and "chunk_ids" in span:
             last["chunk_ids"] = last["chunk_ids"] + span["chunk_ids"]
+        if "segment_ids" in last and "segment_ids" in span:
             last["segment_ids"] = last["segment_ids"] + span["segment_ids"]
-        else:
-            # Start new span
-            merged.append(span.copy())
 
     return merged
 
@@ -141,13 +138,16 @@ def identify_span_topic(
     return "other_topic:unknown"
 
 
-def generate_cutplan(project_path: Path, topic: str) -> Optional[Path]:
+def generate_cutplan(
+    project_path: Path, topic: str, source: str = "auto"
+) -> Optional[Path]:
     """
     Generate a cut plan for extracting a specific topic.
 
     Args:
         project_path: Path to the project directory
         topic: Topic ID to extract
+        source: Topic map source ('auto', 'llm', 'labeled', 'basic')
 
     Returns:
         Path to the cutplan.json file, or None if generation failed
@@ -161,14 +161,35 @@ def generate_cutplan(project_path: Path, topic: str) -> Optional[Path]:
         console.print(f"[red]Error: Not a directory: {project_path}[/red]")
         return None
 
-    # Try to load labeled topic map first, fall back to unlabeled
-    topic_map_path = project_path / "topic_map_labeled.json"
-    if not topic_map_path.exists():
-        topic_map_path = project_path / "topic_map.json"
+    # Map source to filename(s)
+    source_map = {
+        "llm": ["topic_map_llm.json"],
+        "labeled": ["topic_map_labeled.json"],
+        "basic": ["topic_map.json"],
+        "auto": ["topic_map_llm.json", "topic_map_labeled.json", "topic_map.json"],
+    }
 
-    if not topic_map_path.exists():
-        console.print(f"[red]Error: Topic map not found: {topic_map_path}[/red]")
-        console.print("Run 'vodtool topics' first to create topic map.")
+    if source not in source_map:
+        console.print(f"[red]Error: Invalid source '{source}'[/red]")
+        console.print("Valid options: auto, llm, labeled, basic")
+        return None
+
+    # Find topic map file
+    topic_map_path = None
+    for filename in source_map[source]:
+        candidate = project_path / filename
+        if candidate.exists():
+            topic_map_path = candidate
+            break
+
+    if topic_map_path is None:
+        if source == "auto":
+            console.print("[red]Error: No topic map found[/red]")
+            console.print("Run 'vodtool topics' or 'vodtool llm-topics' first.")
+        else:
+            expected = source_map[source][0]
+            console.print(f"[red]Error: {expected} not found[/red]")
+            console.print(f"Run the appropriate command to generate it first.")
         return None
 
     # Load metadata for total duration
@@ -178,7 +199,7 @@ def generate_cutplan(project_path: Path, topic: str) -> Optional[Path]:
         return None
 
     # Load topic map
-    console.print("[cyan]Loading topic map...[/cyan]")
+    console.print(f"[cyan]Loading topic map from {topic_map_path.name}...[/cyan]")
 
     try:
         with topic_map_path.open(encoding="utf-8") as f:
@@ -235,9 +256,9 @@ def generate_cutplan(project_path: Path, topic: str) -> Optional[Path]:
     # Extract keep spans
     keep_spans = [span.copy() for span in selected_topic["spans"]]
 
-    # Merge nearby spans
-    console.print("[cyan]Merging nearby spans (gap threshold: 15s)...[/cyan]")
-    keep_spans = merge_nearby_spans(keep_spans, gap_threshold=15.0)
+    # Merge spans into contiguous ranges (gaps between spans are kept)
+    console.print("[cyan]Merging spans into contiguous ranges...[/cyan]")
+    keep_spans = merge_contiguous_spans(keep_spans)
 
     logger.info(f"Keep spans after merging: {len(keep_spans)}")
 

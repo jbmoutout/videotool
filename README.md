@@ -169,6 +169,38 @@ vodtool pipeline path/to/video.mp4 --max-topics 12
 
 Lower values create broader topic groupings; higher values create more granular topics.
 
+### LLM-Based Topics (Recommended)
+
+For more accurate topic detection using Claude:
+
+```bash
+# Requires ANTHROPIC_API_KEY in .env file
+vodtool llm-topics projects/<project-id>
+vodtool llm-topics projects/<project-id> --max-topics 8
+```
+
+Topic labels are automatically generated in the transcript's language.
+
+### Creating a Cut Plan
+
+```bash
+# Auto-detect best topic map (prefers LLM > labeled > basic)
+vodtool cutplan projects/<project-id> --topic topic_0001
+
+# Explicitly use LLM-generated topics
+vodtool cutplan projects/<project-id> --topic topic_0001 --source llm
+
+# Use embedding-based topics
+vodtool cutplan projects/<project-id> --topic topic_0001 --source labeled
+vodtool cutplan projects/<project-id> --topic topic_0001 --source basic
+```
+
+Source options:
+- `auto` (default): Uses first available: LLM → labeled → basic
+- `llm`: Use `topic_map_llm.json` (best labels, from `llm-topics`)
+- `labeled`: Use `topic_map_labeled.json` (with quotes, from `label-topics`)
+- `basic`: Use `topic_map.json` (from `topics`)
+
 ## Commands
 
 ### Full Pipeline
@@ -182,7 +214,8 @@ Lower values create broader topic groupings; higher values create more granular 
 - `segment-topics` - Detect topic boundaries
 - `topics` - Cluster segments into topics
 - `label-topics` - Generate topic labels (with duration and talk-time metrics)
-- `cutplan` - Create editing plan for a topic
+- `llm-topics` - Use Claude to identify topics (requires ANTHROPIC_API_KEY in .env)
+- `cutplan` - Create editing plan for a topic (use `--source llm|labeled|basic|auto`)
 - `export` - Generate final video with preview
 
 ### Speaker Diarization (Optional)
