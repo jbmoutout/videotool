@@ -1,3 +1,16 @@
+
+ █████   █████    ███████    ██████████      ███████████    ███████       ███████    █████      
+░░███   ░░███   ███░░░░░███ ░░███░░░░███    ░█░░░███░░░█  ███░░░░░███   ███░░░░░███ ░░███       
+ ░███    ░███  ███     ░░███ ░███   ░░███   ░   ░███  ░  ███     ░░███ ███     ░░███ ░███       
+ ░███    ░███ ░███      ░███ ░███    ░███       ░███    ░███      ░███░███      ░███ ░███       
+ ░░███   ███  ░███      ░███ ░███    ░███       ░███    ░███      ░███░███      ░███ ░███       
+  ░░░█████░   ░░███     ███  ░███    ███        ░███    ░░███     ███ ░░███     ███  ░███      █
+    ░░███      ░░░███████░   ██████████         █████    ░░░███████░   ░░░███████░   ███████████
+     ░░░         ░░░░░░░    ░░░░░░░░░░         ░░░░░       ░░░░░░░       ░░░░░░░    ░░░░░░░░░░░ 
+                                                                                                
+                                                                                                
+                                                                                                
+
 I have 10 high-level tickets to build an MVP from scratch. Please work through them sequentially, completing each one fully before moving to the next.
 
 Requirements:
@@ -176,6 +189,34 @@ Acceptance:
 
 10. 
 Implement `vodtool export <project_path>` to produce `export.mp4` and `export_index.json`.
+
+11.
+We already shipped tickets 1-10. Now implement speaker diarization with at least 2 MAIN speakers and integrate into chunks/topics.
+
+Requirements:
+1) Add a new CLI command: `vodtool diarize <project_path> [--num-main 2]`.
+2) Use pyannote.audio diarization (offline) to produce diarization segments:
+   - Write `diarization_segments.json`: list of {start, end, speaker_id}, time-ordered.
+3) Compute total speaking time per speaker_id and map the top `--num-main` speakers to:
+   - MAIN_1, MAIN_2 (and MAIN_3... if num-main >2)
+   - all others => OTHER
+   Save mapping to `speaker_map.json` with structure:
+   {
+     "num_main": 2,
+     "main_speakers": [{"role":"MAIN_1","speaker_id":"SPEAKER_00","seconds":1234.5}, ...],
+     "other_speakers": [{"speaker_id":"SPEAKER_02","seconds":33.2}, ...]
+   }
+4) Update existing `vodtool chunks <project_path>` to add `speaker` to each chunk:
+   - Determine chunk speaker_id by maximum overlap with diarization segments, then map to MAIN_1/MAIN_2/OTHER via speaker_map.json.
+   - If diarization files missing, keep current behavior (no speaker field or speaker="UNKNOWN", pick one and be consistent).
+5) Update `vodtool topics <project_path>` so topic segmentation/clustering uses only chunks where speaker in {MAIN_1, MAIN_2} by default, excluding OTHER.
+   - Ensure downstream files remain compatible (topic_map still references chunk_ids; excluded chunks just won’t appear in topics).
+6) Add a small unit/integration test or at least a deterministic check:
+   - If diarization detects >=2 speakers, speaker_map.json must include MAIN_1 and MAIN_2.
+   - chunks.json must contain speaker labels.
+
+Do not refactor unrelated parts. Keep outputs deterministic. Add clear error messages if pyannote is not installed or diarization model assets are missing.
+
 
 Behavior:
 - Requires `cutplan.json` and original `source.*`.
