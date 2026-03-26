@@ -1,12 +1,15 @@
 """LLM-based topic segmentation command for vodtool."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
 from rich.table import Table
+
+from vodtool.utils.file_utils import safe_read_json, safe_write_json
+from vodtool.utils.pipeline import require_file
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -119,9 +122,11 @@ def validate_topic_map(
         )
         duration_diff = abs(duration - chunk_duration)
         if duration_diff > 0.01:  # Allow 0.01s floating-point tolerance
-            errors.append(
-                f"{topic_id}: duration_seconds ({duration:.2f}) != sum of chunks ({chunk_duration:.2f})",
+            error_msg = (
+                f"{topic_id}: duration_seconds ({duration:.2f}) "
+                f"!= sum of chunks ({chunk_duration:.2f})"
             )
+            errors.append(error_msg)
 
         total_duration += chunk_duration
         topic_durations.append(chunk_duration)
@@ -276,28 +281,20 @@ def llm_topics(
         Path to the topic_map_llm.json file, or None if failed
     """
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Check for chunks.json
-    chunks_path = project_path / "chunks.json"
-    if not chunks_path.exists():
-        console.print(f"[red]Error: chunks.json not found: {chunks_path}[/red]")
-        console.print("Run 'vodtool chunks' first to create chunks.")
+    chunks_path = require_file(project_path, "chunks.json", stage_name="chunks")
+    if chunks_path is None:
         return None
 
     # Load chunks
     console.print("[cyan]Loading chunks...[/cyan]")
-    try:
-        with chunks_path.open(encoding="utf-8") as f:
-            chunks = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading chunks: {e}[/red]")
+    chunks = safe_read_json(chunks_path)
+    if chunks is None:
         return None
 
     logger.info(f"Loaded {len(chunks)} chunks")
@@ -387,23 +384,21 @@ def llm_topics(
     output_path = project_path / "topic_map_llm.json"
     console.print("[cyan]Saving topic map...[/cyan]")
 
-    try:
-        with output_path.open("w", encoding="utf-8") as f:
-            json.dump(topic_map, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved topic_map_llm.json: {output_path}")
-    except Exception as e:
-        console.print(f"[red]Error saving topic map: {e}[/red]")
+    if not safe_write_json(output_path, topic_map):
         return None
+
+    logger.info(f"Saved topic_map_llm.json: {output_path}")
 
     # Print summary
     stats = validation["stats"]
     total_duration = stats["total_duration"]
-    stream_duration = stats["stream_duration"]
 
     console.print("\n[green]✓ LLM topic segmentation complete![/green]")
     console.print(f"[bold]Topics:[/bold] {len(topic_map)}")
     console.print(f"[bold]Total Duration:[/bold] {format_duration(total_duration)}")
-    console.print(f"[bold]Coverage:[/bold] {stats['assigned_chunks']}/{stats['total_chunks']} chunks")
+    assigned = stats["assigned_chunks"]
+    total = stats["total_chunks"]
+    console.print(f"[bold]Coverage:[/bold] {assigned}/{total} chunks")
     console.print(f"[bold]Output:[/bold] {output_path}")
 
     # Print topic table
