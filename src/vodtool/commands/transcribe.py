@@ -1,11 +1,13 @@
 """Transcription command for vodtool using OpenAI Whisper."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
+
+from vodtool.utils.file_utils import project_lock, safe_write_json
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -50,12 +52,9 @@ def transcribe_audio(
         return None
 
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Check for audio file
@@ -93,68 +92,67 @@ def transcribe_audio(
         console.print("\nValid model names: tiny, base, small, medium, large")
         return None
 
-    # Transcribe audio
-    console.print("[cyan]Transcribing audio...[/cyan]")
-    console.print(f"[dim]Audio file: {audio_path}[/dim]")
-    if language:
-        console.print(f"[dim]Language: {language}[/dim]")
-
-    try:
-        transcribe_kwargs = {"verbose": False}
+    # Acquire project lock to prevent concurrent modifications
+    with project_lock(project_path):
+        # Transcribe audio
+        console.print("[cyan]Transcribing audio...[/cyan]")
+        console.print(f"[dim]Audio file: {audio_path}[/dim]")
         if language:
-            transcribe_kwargs["language"] = language
-        result = model.transcribe(str(audio_path), **transcribe_kwargs)
-        logger.info("Transcription complete")
-    except Exception as e:
-        console.print(f"[red]Error during transcription: {e}[/red]")
-        return None
+            console.print(f"[dim]Language: {language}[/dim]")
 
-    # Extract relevant data
-    transcript_data = {
-        "language": result.get("language", "unknown"),
-        "model": model_name,
-        "segments": [
-            {
-                "start": seg["start"],
-                "end": seg["end"],
-                "text": seg["text"].strip(),
-            }
-            for seg in result.get("segments", [])
-        ],
-    }
+        try:
+            transcribe_kwargs = {"verbose": False}
+            if language:
+                transcribe_kwargs["language"] = language
+            result = model.transcribe(str(audio_path), **transcribe_kwargs)
+            logger.info("Transcription complete")
+        except Exception as e:
+            console.print(f"[red]Error during transcription: {e}[/red]")
+            return None
 
-    # Save transcript_raw.json
-    console.print("[cyan]Saving transcript...[/cyan]")
+        # Extract relevant data
+        transcript_data = {
+            "language": result.get("language", "unknown"),
+            "model": model_name,
+            "segments": [
+                {
+                    "start": seg["start"],
+                    "end": seg["end"],
+                    "text": seg["text"].strip(),
+                }
+                for seg in result.get("segments", [])
+            ],
+        }
 
-    try:
-        with transcript_raw_path.open("w", encoding="utf-8") as f:
-            json.dump(transcript_data, f, indent=2, ensure_ascii=False)
+        # Save transcript_raw.json
+        console.print("[cyan]Saving transcript...[/cyan]")
+
+        if not safe_write_json(transcript_raw_path, transcript_data):
+            return None
+
         logger.info(f"Saved transcript_raw.json: {transcript_raw_path}")
-    except Exception as e:
-        console.print(f"[red]Error saving transcript JSON: {e}[/red]")
-        return None
 
-    # Save transcript.txt (plain text)
-    try:
-        with transcript_txt_path.open("w", encoding="utf-8") as f:
-            for seg in transcript_data["segments"]:
-                f.write(seg["text"] + "\n")
-        logger.info(f"Saved transcript.txt: {transcript_txt_path}")
-    except Exception as e:
-        console.print(f"[red]Error saving transcript text: {e}[/red]")
-        # Not fatal, JSON is more important
-        logger.warning(f"Failed to save transcript.txt: {e}")
+        # Save transcript.txt (plain text)
+        try:
+            with transcript_txt_path.open("w", encoding="utf-8") as f:
+                for seg in transcript_data["segments"]:
+                    f.write(seg["text"] + "\n")
+            logger.info(f"Saved transcript.txt: {transcript_txt_path}")
+        except OSError as e:
+            console.print(f"[red]Error saving transcript text: {e}[/red]")
+            # Not fatal, JSON is more important
+            logger.warning(f"Failed to save transcript.txt: {e}")
 
-    # Print summary
-    num_segments = len(transcript_data["segments"])
-    if num_segments > 0:
-        duration = transcript_data["segments"][-1]["end"]
-        console.print("\n[green]✓ Transcription complete![/green]")
-        console.print(f"[bold]Language:[/bold] {transcript_data['language']}")
-        console.print(f"[bold]Segments:[/bold] {num_segments}")
-        console.print(f"[bold]Duration:[/bold] {duration:.1f}s ({duration/60:.1f} min)")
-        console.print(f"[bold]Transcript:[/bold] {transcript_raw_path}")
-    else:
-        console.print("[yellow]Warning: No segments found in transcription[/yellow]")
+        # Print summary
+        num_segments = len(transcript_data["segments"])
+        if num_segments > 0:
+            duration = transcript_data["segments"][-1]["end"]
+            console.print("\n[green]✓ Transcription complete![/green]")
+            console.print(f"[bold]Language:[/bold] {transcript_data['language']}")
+            console.print(f"[bold]Segments:[/bold] {num_segments}")
+            console.print(f"[bold]Duration:[/bold] {duration:.1f}s ({duration/60:.1f} min)")
+            console.print(f"[bold]Transcript:[/bold] {transcript_raw_path}")
+        else:
+            console.print("[yellow]Warning: No segments found in transcription[/yellow]")
 
-    return transcript_raw_path
+        return transcript_raw_path
