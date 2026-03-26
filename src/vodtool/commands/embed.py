@@ -1,6 +1,5 @@
 """Embedding generation command for vodtool using sentence-transformers."""
 
-import json
 import logging
 import sqlite3
 from pathlib import Path
@@ -8,6 +7,10 @@ from typing import Optional
 
 import numpy as np
 from rich.console import Console
+
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.pipeline import require_file
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -146,28 +149,20 @@ def embed_chunks(
         return None
 
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Check for chunks.json
-    chunks_path = project_path / "chunks.json"
-    if not chunks_path.exists():
-        console.print(f"[red]Error: Chunks file not found: {chunks_path}[/red]")
-        console.print("Run 'vodtool chunks' first to create chunks.")
+    chunks_path = require_file(project_path, "chunks.json", stage_name="chunks")
+    if chunks_path is None:
         return None
 
     # Load chunks
     console.print("[cyan]Loading chunks...[/cyan]")
-    try:
-        with chunks_path.open(encoding="utf-8") as f:
-            chunks = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading chunks: {e}[/red]")
+    chunks = safe_read_json(chunks_path)
+    if chunks is None:
         return None
 
     if not chunks:
