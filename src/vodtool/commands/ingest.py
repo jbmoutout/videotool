@@ -11,6 +11,13 @@ from typing import Optional
 
 from rich.console import Console
 
+from vodtool.utils.validation import (
+    check_disk_space,
+    check_file_size,
+    get_projects_dir,
+    validate_video_file,
+)
+
 console = Console()
 logger = logging.getLogger("vodtool")
 
@@ -27,6 +34,27 @@ def check_ffmpeg_available(ffmpeg_path: str = "ffmpeg") -> bool:
         return result.returncode == 0
     except FileNotFoundError:
         return False
+
+
+def get_ffprobe_path(ffmpeg_path: str) -> str:
+    """
+    Derive ffprobe path from ffmpeg path.
+
+    Handles both simple names ('ffmpeg') and full paths ('/usr/local/bin/ffmpeg-custom').
+
+    Args:
+        ffmpeg_path: Path to ffmpeg binary
+
+    Returns:
+        Path to ffprobe binary
+    """
+    ffmpeg = Path(ffmpeg_path)
+    # If it's just 'ffmpeg', return 'ffprobe'
+    if ffmpeg.name == "ffmpeg":
+        return "ffprobe"
+    # Otherwise, same directory, replace 'ffmpeg' with 'ffprobe' in the name
+    probe_name = ffmpeg.name.replace("ffmpeg", "ffprobe")
+    return str(ffmpeg.parent / probe_name)
 
 
 def get_video_duration(video_path: Path, ffprobe_path: str = "ffprobe") -> Optional[float]:
@@ -50,10 +78,13 @@ def get_video_duration(video_path: Path, ffprobe_path: str = "ffprobe") -> Optio
             capture_output=True,
             text=True,
             check=True,
+            timeout=30,  # Prevent hanging on corrupted files
         )
         duration_str = result.stdout.strip()
         if duration_str:
             return float(duration_str)
+    except subprocess.TimeoutExpired:
+        logger.warning(f"ffprobe timed out after 30s on {video_path}")
     except (subprocess.CalledProcessError, ValueError, FileNotFoundError) as e:
         logger.warning(f"Could not extract video duration: {e}")
     return None
@@ -107,7 +138,7 @@ def ingest_video(input_video_path: Path, ffmpeg_path: str = "ffmpeg") -> Optiona
         Path to the created project directory, or None if ingestion failed
     """
     # Derive ffprobe path from ffmpeg path
-    ffprobe_path = ffmpeg_path.replace("ffmpeg", "ffprobe")
+    ffprobe_path = get_ffprobe_path(ffmpeg_path)
 
     # Check ffmpeg availability
     if not check_ffmpeg_available(ffmpeg_path):
@@ -121,30 +152,50 @@ def ingest_video(input_video_path: Path, ffmpeg_path: str = "ffmpeg") -> Optiona
         console.print("\nOr specify a custom path with --ffmpeg-path")
         return None
 
-    # Validate input file
-    if not input_video_path.exists():
-        console.print(f"[red]Error: Input file not found: {input_video_path}[/red]")
+    # Validate input file (file exists, is a file, has video extension)
+    error = validate_video_file(input_video_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
-    if not input_video_path.is_file():
-        console.print(f"[red]Error: Input path is not a file: {input_video_path}[/red]")
+    # Warn about large files
+    warning = check_file_size(input_video_path)
+    if warning:
+        console.print(f"[yellow]Warning: {warning}[/yellow]")
+
+    # Get file size for disk space check
+    try:
+        file_size = input_video_path.stat().st_size
+    except OSError as e:
+        console.print(f"[red]Error: Cannot access file: {e}[/red]")
         return None
 
     # Generate project ID
     project_id = uuid.uuid4().hex[:8]
     logger.info(f"Creating project with ID: {project_id}")
 
-    # Create project directory
-    projects_dir = Path("./projects")
-    projects_dir.mkdir(exist_ok=True)
+    # Get projects directory (uses ~/.vodtool/projects)
+    projects_dir = get_projects_dir()
+
+    # Check disk space before creating project
+    # Need space for: source copy + audio.wav (~10% of source) + safety margin
+    required_space = int(file_size * 1.2)  # 20% overhead for audio + temp files
+    error = check_disk_space(projects_dir, required_space)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
+        return None
 
     project_dir = projects_dir / project_id
     if project_dir.exists():
         console.print(f"[red]Error: Project directory already exists: {project_dir}[/red]")
         return None
 
-    project_dir.mkdir(parents=True)
-    logger.info(f"Created project directory: {project_dir}")
+    try:
+        project_dir.mkdir(parents=True)
+        logger.info(f"Created project directory: {project_dir}")
+    except OSError as e:
+        console.print(f"[red]Error: Cannot create project directory: {e}[/red]")
+        return None
 
     # Copy source video
     source_extension = input_video_path.suffix
@@ -155,8 +206,9 @@ def ingest_video(input_video_path: Path, ffmpeg_path: str = "ffmpeg") -> Optiona
     try:
         shutil.copy2(input_video_path, source_path)
         logger.info(f"Copied source video to: {source_path}")
-    except Exception as e:
+    except (OSError, IOError, shutil.Error) as e:
         console.print(f"[red]Error copying video: {e}[/red]")
+        console.print("[dim]Cleaning up project directory...[/dim]")
         shutil.rmtree(project_dir, ignore_errors=True)
         return None
 

@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-03-26
+
+### Added
+- File locking (`project_lock()`) to prevent concurrent modifications across commands
+- Safe JSON utilities with atomic writes (write to temp file, then rename)
+- Input validation utilities for project paths, video files, and disk space checks
+- Pipeline dependency management system for tracking stage requirements
+- LLM retry logic with exponential backoff and configurable timeouts (60s Anthropic, 120s Ollama)
+- Timeout protection for ffprobe calls (30s) to prevent hanging on corrupted files
+
+### Changed
+- Refactored all commands to use centralized validation, file locking, and safe JSON operations
+- Projects now stored in `~/.vodtool/projects` instead of `./projects`
+- Error messages now include helpful suggestions for missing pipeline dependencies
+- Improved error handling with specific exception types instead of broad `Exception` catches
+
+### Fixed
+- Line-too-long linter errors in llm_topics.py
+- Redundant IOError exception (Python 3 alias) in transcribe.py
+- Added cleanup on ingest failure (removes partial project directory)
+
 ## [0.1.1] - 2026-03-26
 
 ### Added

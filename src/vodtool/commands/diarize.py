@@ -1,6 +1,5 @@
 """Speaker diarization command using pyannote.audio."""
 
-import json
 import logging
 import os
 import warnings
@@ -46,6 +45,9 @@ from dotenv import load_dotenv  # noqa: E402
 from rich.console import Console  # noqa: E402
 from rich.progress import Progress, SpinnerColumn, TextColumn  # noqa: E402
 
+from vodtool.utils.file_utils import project_lock, safe_read_json, safe_write_json  # noqa: E402
+from vodtool.utils.validation import validate_project_path  # noqa: E402
+
 logger = logging.getLogger(__name__)
 console = Console()
 
@@ -74,18 +76,18 @@ def diarize_command(
         logger.error("pyannote.audio not installed. Install with: pip install pyannote.audio")
         raise typer.Exit(1) from e
 
-    if not project_path.exists():
-        logger.error(f"Project path does not exist: {project_path}")
+    # Validate project directory
+    error = validate_project_path(project_path)
+    if error:
+        logger.error(error)
         raise typer.Exit(1)
 
-    # Check for required files
+    # Load project metadata
     meta_file = project_path / "meta.json"
-    if not meta_file.exists():
-        logger.error(f"meta.json not found in {project_path}")
+    meta = safe_read_json(meta_file)
+    if meta is None:
+        logger.error(f"Failed to read meta.json from {project_path}")
         raise typer.Exit(1)
-
-    with meta_file.open() as f:
-        meta = json.load(f)
 
     audio_path = Path(meta["audio_path"])
     # Handle relative paths by resolving against project directory
@@ -144,58 +146,62 @@ def diarize_command(
         logger.error(f"Diarization failed: {e}")
         raise typer.Exit(1) from e
 
-    # Convert to list of segments
-    segments = []
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        segments.append(
-            {"start": turn.start, "end": turn.end, "speaker_id": speaker},
-        )
-
-    # Sort by start time
-    segments.sort(key=lambda s: s["start"])
-
-    # Save raw diarization segments
-    segments_file = project_path / "diarization_segments.json"
-    with segments_file.open("w") as f:
-        json.dump(segments, f, indent=2)
-    logger.info(f"Saved {len(segments)} diarization segments to {segments_file}")
-
-    # Compute speaking time per speaker
-    speaker_times = {}
-    for seg in segments:
-        speaker_id = seg["speaker_id"]
-        duration = seg["end"] - seg["start"]
-        speaker_times[speaker_id] = speaker_times.get(speaker_id, 0.0) + duration
-
-    # Sort speakers by speaking time (descending)
-    sorted_speakers = sorted(speaker_times.items(), key=lambda x: x[1], reverse=True)
-
-    # Map top num_main speakers to MAIN_1, MAIN_2, etc.
-    main_speakers = []
-    other_speakers = []
-
-    for idx, (speaker_id, seconds) in enumerate(sorted_speakers):
-        if idx < num_main:
-            role = f"MAIN_{idx + 1}"
-            main_speakers.append(
-                {"role": role, "speaker_id": speaker_id, "seconds": round(seconds, 1)},
+    # Acquire project lock to prevent concurrent modifications
+    with project_lock(project_path):
+        # Convert to list of segments
+        segments = []
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            segments.append(
+                {"start": turn.start, "end": turn.end, "speaker_id": speaker},
             )
-        else:
-            other_speakers.append({"speaker_id": speaker_id, "seconds": round(seconds, 1)})
 
-    speaker_map = {
-        "num_main": num_main,
-        "main_speakers": main_speakers,
-        "background_speakers": [],  # Empty initially, populated via diarize-review
-        "other_speakers": other_speakers,
-    }
+        # Sort by start time
+        segments.sort(key=lambda s: s["start"])
 
-    # Save speaker map
-    map_file = project_path / "speaker_map.json"
-    with map_file.open("w") as f:
-        json.dump(speaker_map, f, indent=2)
+        # Save raw diarization segments
+        segments_file = project_path / "diarization_segments.json"
+        if not safe_write_json(segments_file, segments):
+            logger.error(f"Failed to save diarization segments to {segments_file}")
+            raise typer.Exit(1)
+        logger.info(f"Saved {len(segments)} diarization segments to {segments_file}")
 
-    logger.info(f"Saved speaker map to {map_file}")
+        # Compute speaking time per speaker
+        speaker_times = {}
+        for seg in segments:
+            speaker_id = seg["speaker_id"]
+            duration = seg["end"] - seg["start"]
+            speaker_times[speaker_id] = speaker_times.get(speaker_id, 0.0) + duration
+
+        # Sort speakers by speaking time (descending)
+        sorted_speakers = sorted(speaker_times.items(), key=lambda x: x[1], reverse=True)
+
+        # Map top num_main speakers to MAIN_1, MAIN_2, etc.
+        main_speakers = []
+        other_speakers = []
+
+        for idx, (speaker_id, seconds) in enumerate(sorted_speakers):
+            if idx < num_main:
+                role = f"MAIN_{idx + 1}"
+                main_speakers.append(
+                    {"role": role, "speaker_id": speaker_id, "seconds": round(seconds, 1)},
+                )
+            else:
+                other_speakers.append({"speaker_id": speaker_id, "seconds": round(seconds, 1)})
+
+        speaker_map = {
+            "num_main": num_main,
+            "main_speakers": main_speakers,
+            "background_speakers": [],  # Empty initially, populated via diarize-review
+            "other_speakers": other_speakers,
+        }
+
+        # Save speaker map
+        map_file = project_path / "speaker_map.json"
+        if not safe_write_json(map_file, speaker_map):
+            logger.error(f"Failed to save speaker map to {map_file}")
+            raise typer.Exit(1)
+
+        logger.info(f"Saved speaker map to {map_file}")
     logger.info(
         f"Identified {len(main_speakers)} main speaker(s) "
         f"and {len(other_speakers)} other(s)",
