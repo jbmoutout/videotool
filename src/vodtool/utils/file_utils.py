@@ -75,9 +75,13 @@ def safe_write_json(file_path: Path, data: Any, *, indent: int = 2) -> bool:
         console.print(f"[red]Error: Cannot write file: {file_path}[/red]")
         console.print(f"[dim]{e}[/dim]")
 
-        # Clean up temp file if it exists
-        if temp_path.exists():
-            temp_path.unlink()
+        # Clean up temp file if it exists (best effort)
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
+        except OSError:
+            # Cleanup failed, but write already failed so this is non-critical
+            pass
 
         return False
 
