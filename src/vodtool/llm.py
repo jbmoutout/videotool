@@ -3,14 +3,22 @@
 import json
 import logging
 import os
+import time
 from typing import Optional
 
 from dotenv import load_dotenv
+from rich.console import Console
 
 logger = logging.getLogger("vodtool")
+console = Console()
 
 # Load environment variables from .env
 load_dotenv()
+
+# API timeout settings
+ANTHROPIC_TIMEOUT = 60  # seconds
+OLLAMA_TIMEOUT = 120  # seconds (local models are slower)
+MAX_RETRIES = 2  # retry once on transient failures
 
 
 def get_anthropic_client():
@@ -168,26 +176,62 @@ def segment_topics_with_llm(
 
     Returns:
         List of topic dicts with label, chunk_ids, summary
+
+    Raises:
+        ConnectionError: If API call fails after retries
+        ValueError: If API returns invalid JSON
     """
     # Build prompt using shared logic
     prompt = _build_topic_extraction_prompt(chunks, max_topics)
 
     logger.info(f"Sending {len(chunks)} chunks to Claude for topic segmentation")
 
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=8192,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    # Retry logic for transient network errors
+    last_error = None
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=ANTHROPIC_TIMEOUT,
+            )
 
-    response_text = response.content[0].text
+            response_text = response.content[0].text
 
-    # Parse using shared logic
-    topics = _parse_topic_response(response_text)
+            # Parse using shared logic
+            topics = _parse_topic_response(response_text)
 
-    logger.info(f"Claude identified {len(topics)} topics")
+            logger.info(f"Claude identified {len(topics)} topics")
+            return topics
 
-    return topics
+        except Exception as e:
+            last_error = e
+            error_type = type(e).__name__
+
+            # Check if it's a retryable error (network/timeout)
+            is_retryable = "timeout" in error_type.lower() or "connection" in error_type.lower()
+            if is_retryable and attempt < MAX_RETRIES:
+                wait_time = 2**attempt  # Exponential backoff: 1s, 2s
+                logger.warning(f"API call failed ({error_type}), retrying in {wait_time}s...")
+                console.print(f"[yellow]Network error, retrying in {wait_time}s...[/yellow]")
+                time.sleep(wait_time)
+                continue
+
+            # Exhausted retries or non-retryable error
+            if is_retryable:
+                msg = f"Claude API failed after {MAX_RETRIES + 1} attempts"
+                console.print(f"[red]Error: {msg}[/red]")
+                console.print(f"[dim]{error_type}: {e}[/dim]")
+                raise ConnectionError(f"Claude API timeout/network error: {e}") from e
+
+            # Non-retryable error (auth, invalid request, etc.)
+            console.print("[red]Error: Claude API call failed[/red]")
+            console.print(f"[dim]{error_type}: {e}[/dim]")
+            raise
+
+    # Should not reach here, but just in case
+    raise ConnectionError(f"Claude API failed: {last_error}") from last_error
 
 
 def _estimate_token_count(text: str) -> int:
@@ -240,19 +284,31 @@ def segment_topics_with_local_llm(
         # Input fits in one batch - use normal processing
         logger.info(f"Sending {len(chunks)} chunks to local LLM ({model}) for topic segmentation")
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": full_prompt}],
-            temperature=0.3,
-            max_tokens=4096,
-            response_format={"type": "json_object"},
-        )
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": full_prompt}],
+                temperature=0.3,
+                max_tokens=4096,
+                response_format={"type": "json_object"},
+                timeout=OLLAMA_TIMEOUT,
+            )
 
-        response_text = response.choices[0].message.content
-        topics = _parse_topic_response(response_text)
+            response_text = response.choices[0].message.content
+            topics = _parse_topic_response(response_text)
 
-        logger.info(f"Local LLM identified {len(topics)} topics")
-        return topics
+            logger.info(f"Local LLM identified {len(topics)} topics")
+            return topics
+
+        except Exception as e:
+            error_type = type(e).__name__
+            console.print(f"[red]Error: Local LLM ({model}) call failed[/red]")
+            console.print(f"[dim]{error_type}: {e}[/dim]")
+            if "timeout" in str(e).lower():
+                console.print(
+                    "[yellow]Tip: Try a smaller model (llama3.2:1b) or fewer chunks[/yellow]"
+                )
+            raise
 
     # Input is too large - batch processing
     logger.info(
@@ -281,18 +337,27 @@ def segment_topics_with_local_llm(
 
         batch_prompt = _build_topic_extraction_prompt(batch_chunks, max_topics)
 
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": batch_prompt}],
-            temperature=0.3,
-            max_tokens=4096,
-            response_format={"type": "json_object"},
-        )
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": batch_prompt}],
+                temperature=0.3,
+                max_tokens=4096,
+                response_format={"type": "json_object"},
+                timeout=OLLAMA_TIMEOUT,
+            )
 
-        response_text = response.choices[0].message.content
-        batch_topics = _parse_topic_response(response_text)
+            response_text = response.choices[0].message.content
+            batch_topics = _parse_topic_response(response_text)
 
-        all_topics.extend(batch_topics)
+            all_topics.extend(batch_topics)
+
+        except Exception as e:
+            error_type = type(e).__name__
+            msg = f"Error: Local LLM batch {batch_num}/{total_batches} failed"
+            console.print(f"[red]{msg}[/red]")
+            console.print(f"[dim]{error_type}: {e}[/dim]")
+            raise
 
     logger.info(
         f"Local LLM identified {len(all_topics)} topics across "
