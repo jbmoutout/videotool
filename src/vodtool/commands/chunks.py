@@ -1,12 +1,14 @@
 """Semantic chunking command for vodtool."""
 
-import json
 import logging
 import re
 from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
+
+from vodtool.utils.file_utils import project_lock, safe_read_json, safe_write_json
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -180,48 +182,17 @@ def assign_speakers_to_chunks(
             chunk["speaker"] = "UNKNOWN"
 
 
-def create_chunks(project_path: Path) -> Optional[Path]:
+def _process_chunks_locked(project_path: Path, segments: list[dict]) -> Optional[Path]:
     """
-    Split transcript into semantic chunks.
+    Process chunks within project lock (internal helper).
 
     Args:
         project_path: Path to the project directory
+        segments: List of transcript segments
 
     Returns:
-        Path to the chunks.json file, or None if chunking failed
+        Path to the chunks.json file, or None if processing failed
     """
-    # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
-        return None
-
-    # Check for transcript_raw.json
-    transcript_path = project_path / "transcript_raw.json"
-    if not transcript_path.exists():
-        console.print(f"[red]Error: Transcript not found: {transcript_path}[/red]")
-        console.print("Run 'vodtool transcribe' first to create a transcript.")
-        return None
-
-    # Load transcript
-    console.print("[cyan]Loading transcript...[/cyan]")
-    try:
-        with transcript_path.open(encoding="utf-8") as f:
-            transcript_data = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading transcript: {e}[/red]")
-        return None
-
-    segments = transcript_data.get("segments", [])
-    if not segments:
-        console.print("[yellow]Warning: No segments found in transcript[/yellow]")
-        return None
-
-    logger.info(f"Loaded {len(segments)} segments from transcript")
-
     # Create chunks
     console.print("[cyan]Creating semantic chunks (5-25 seconds)...[/cyan]")
     try:
@@ -242,17 +213,21 @@ def create_chunks(project_path: Path) -> Optional[Path]:
 
     if diarization_path.exists() and speaker_map_path.exists():
         console.print("[cyan]Adding speaker information...[/cyan]")
-        try:
-            with diarization_path.open(encoding="utf-8") as f:
-                diarization_segments = json.load(f)
-            with speaker_map_path.open(encoding="utf-8") as f:
-                speaker_map = json.load(f)
+        diarization_data = safe_read_json(diarization_path)
+        speaker_map_data = safe_read_json(speaker_map_path)
 
-            assign_speakers_to_chunks(chunks, diarization_segments, speaker_map)
-            logger.info("Added speaker labels to chunks")
-        except Exception as e:
-            console.print(f"[yellow]Warning: Could not add speaker info: {e}[/yellow]")
-            # Continue without speaker info
+        if diarization_data and speaker_map_data:
+            try:
+                assign_speakers_to_chunks(chunks, diarization_data, speaker_map_data)
+                logger.info("Added speaker labels to chunks")
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not add speaker info: {e}[/yellow]")
+                # Continue without speaker info
+                for chunk in chunks:
+                    chunk["speaker"] = "UNKNOWN"
+        else:
+            # JSON parsing failed
+            console.print("[yellow]Warning: Could not load diarization files[/yellow]")
             for chunk in chunks:
                 chunk["speaker"] = "UNKNOWN"
     else:
@@ -266,13 +241,10 @@ def create_chunks(project_path: Path) -> Optional[Path]:
     chunks_path = project_path / "chunks.json"
     console.print("[cyan]Saving chunks...[/cyan]")
 
-    try:
-        with chunks_path.open("w", encoding="utf-8") as f:
-            json.dump(chunks, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved chunks.json: {chunks_path}")
-    except Exception as e:
-        console.print(f"[red]Error saving chunks: {e}[/red]")
+    if not safe_write_json(chunks_path, chunks):
         return None
+
+    logger.info(f"Saved chunks.json: {chunks_path}")
 
     # Print summary
     total_duration = chunks[-1]["end"] - chunks[0]["start"]
@@ -287,3 +259,44 @@ def create_chunks(project_path: Path) -> Optional[Path]:
     console.print(f"[bold]Output:[/bold] {chunks_path}")
 
     return chunks_path
+
+
+def create_chunks(project_path: Path) -> Optional[Path]:
+    """
+    Split transcript into semantic chunks.
+
+    Args:
+        project_path: Path to the project directory
+
+    Returns:
+        Path to the chunks.json file, or None if chunking failed
+    """
+    # Validate project directory
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
+        return None
+
+    # Acquire project lock to prevent concurrent modifications
+    with project_lock(project_path):
+        # Check for transcript_raw.json
+        transcript_path = project_path / "transcript_raw.json"
+        if not transcript_path.exists():
+            console.print(f"[red]Error: Transcript not found: {transcript_path}[/red]")
+            console.print("Run 'vodtool transcribe' first to create a transcript.")
+            return None
+
+        # Load transcript with validation
+        console.print("[cyan]Loading transcript...[/cyan]")
+        transcript_data = safe_read_json(transcript_path)
+        if transcript_data is None:
+            return None
+
+        segments = transcript_data.get("segments", [])
+        if not segments:
+            console.print("[yellow]Warning: No segments found in transcript[/yellow]")
+            return None
+
+        logger.info(f"Loaded {len(segments)} segments from transcript")
+
+        return _process_chunks_locked(project_path, segments)
