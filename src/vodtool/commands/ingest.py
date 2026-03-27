@@ -134,13 +134,14 @@ def extract_audio(video_path: Path, output_path: Path, ffmpeg_path: str = "ffmpe
         return False
 
 
-def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg") -> Optional[Path]:
+def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "720p,720p60,best") -> Optional[Path]:
     """
     Ingest a video file or Twitch VOD URL and create a new project.
 
     Args:
         input_video_path: Path to a local video file, or a Twitch VOD URL
         ffmpeg_path: Path to ffmpeg binary
+        quality: streamlink quality for Twitch downloads (default: 720p,720p60,best)
 
     Returns:
         Path to the created project directory, or None if ingestion failed
@@ -163,7 +164,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg") -> Optional[Path
         tmp_dir = tempfile.mkdtemp(prefix="vodtool_twitch_")
         tmp_video = Path(tmp_dir) / "vod.mp4"
 
-        if not download_vod(twitch_url, tmp_video):
+        if not download_vod(twitch_url, tmp_video, quality=quality):
             console.print("[red]Error: VOD download failed.[/red]")
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return None

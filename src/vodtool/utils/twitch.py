@@ -39,20 +39,22 @@ def check_streamlink() -> bool:
         return False
 
 
-def download_vod(url: str, output_path: Path) -> bool:
+def download_vod(url: str, output_path: Path, quality: str = "720p,720p60,best") -> bool:
     """
     Download a Twitch VOD to output_path using streamlink.
 
     Args:
         url: Twitch VOD URL (https://twitch.tv/videos/<id>)
         output_path: Destination file path (e.g. /tmp/vod.mp4)
+        quality: streamlink quality selector. Comma-separated fallback list.
+                 Default: "720p,720p60,best" — prefers 720p, falls back to best.
 
     Returns:
         True on success, False on failure
     """
-    logger.info(f"Downloading VOD: {url}")
+    logger.info(f"Downloading VOD: {url} (quality: {quality})")
     result = subprocess.run(
-        ["streamlink", url, "best", "--output", str(output_path)],
+        ["streamlink", url, quality, "--output", str(output_path)],
         text=True,
     )
     if result.returncode != 0:

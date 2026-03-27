@@ -76,6 +76,11 @@ def main(
 @app.command()
 def ingest(
     input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
+    quality: str = typer.Option(
+        "720p,720p60,best",
+        "--quality",
+        help="Video quality for Twitch downloads (e.g. '720p', '1080p60', 'best')",
+    ),
 ):
     """
     Ingest a video file or Twitch VOD URL and create a new project.
@@ -84,7 +89,7 @@ def ingest(
     Accepts a local file path or a Twitch URL (https://twitch.tv/videos/<id>).
     """
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
-    project_dir = ingest_video(input_video_path, ffmpeg_path)
+    project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
     if project_dir is None:
         raise typer.Exit(code=1)
 
@@ -263,6 +268,11 @@ def export(
 @app.command()
 def pipeline(
     input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
+    quality: str = typer.Option(
+        "720p,720p60,best",
+        "--quality",
+        help="Video quality for Twitch downloads (e.g. '720p', '1080p60', 'best')",
+    ),
     whisper_model: str = typer.Option("whisper-1", "--whisper-model", help="Whisper model"),
     language: Optional[str] = typer.Option(
         None, "--language", help="Language code (auto-detect if not specified)",
@@ -302,7 +312,7 @@ def pipeline(
 
     # Step 1: Ingest
     progress(1, "Ingesting video...")
-    project_dir = ingest_video(input_video_path, ffmpeg_path)
+    project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
     if project_dir is None:
         fail(1, "Ingest failed")
 
