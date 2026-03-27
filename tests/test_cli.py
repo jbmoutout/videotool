@@ -170,6 +170,92 @@ class TestTranscribeCommand:
             assert args[2] is True  # force parameter (3rd arg)
 
 
+class TestPipelineJsonProgress:
+    """Tests for vodtool pipeline --json-progress flag."""
+
+    def test_json_progress_emits_json_lines(self, tmp_path):
+        """--json-progress flag produces parseable JSON lines on stdout."""
+        import json
+
+        with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
+             mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe, \
+             mock.patch("vodtool.cli.create_chunks") as mock_chunks, \
+             mock.patch("vodtool.cli.embed_chunks") as mock_embed, \
+             mock.patch("vodtool.cli.segment_topics") as mock_segment, \
+             mock.patch("vodtool.cli.cluster_topics") as mock_cluster, \
+             mock.patch("vodtool.cli.label_topics_command") as mock_label:
+            project = tmp_path / "project"
+            mock_ingest.return_value = project
+            mock_transcribe.return_value = project / "transcript_raw.json"
+            mock_chunks.return_value = project / "chunks.json"
+            mock_embed.return_value = project / "embeddings.sqlite"
+            mock_segment.return_value = project / "segments.json"
+            mock_cluster.return_value = project / "topic_map.json"
+            mock_label.return_value = project / "topic_map_labeled.json"
+
+            result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
+
+        assert result.exit_code == 0
+        lines = [l for l in result.output.strip().splitlines() if l.strip()]
+        parsed = [json.loads(l) for l in lines]
+        assert len(parsed) == 7
+        for i, obj in enumerate(parsed, start=1):
+            assert obj["step"] == i
+            assert obj["total"] == 7
+            assert "pct" in obj
+            assert "msg" in obj
+
+    def test_json_progress_step_failure_emits_error(self, tmp_path):
+        """When a step fails with --json-progress, stdout contains an error object."""
+        import json
+
+        with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
+             mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe:
+            mock_ingest.return_value = tmp_path / "project"
+            mock_transcribe.return_value = None  # step 2 fails
+
+            result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
+
+        assert result.exit_code == 1
+        lines = [l for l in result.output.strip().splitlines() if l.strip()]
+        parsed = [json.loads(l) for l in lines]
+        error_lines = [p for p in parsed if "error" in p]
+        assert len(error_lines) == 1
+        assert error_lines[0]["step"] == 2
+
+    def test_no_json_progress_uses_rich_output(self, tmp_path):
+        """Without --json-progress, output uses Rich text format (no JSON)."""
+        import json
+
+        with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
+             mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe, \
+             mock.patch("vodtool.cli.create_chunks") as mock_chunks, \
+             mock.patch("vodtool.cli.embed_chunks") as mock_embed, \
+             mock.patch("vodtool.cli.segment_topics") as mock_segment, \
+             mock.patch("vodtool.cli.cluster_topics") as mock_cluster, \
+             mock.patch("vodtool.cli.label_topics_command") as mock_label:
+            project = tmp_path / "project"
+            mock_ingest.return_value = project
+            mock_transcribe.return_value = project / "transcript_raw.json"
+            mock_chunks.return_value = project / "chunks.json"
+            mock_embed.return_value = project / "embeddings.sqlite"
+            mock_segment.return_value = project / "segments.json"
+            mock_cluster.return_value = project / "topic_map.json"
+            mock_label.return_value = project / "topic_map_labeled.json"
+
+            result = runner.invoke(app, ["pipeline", str(tmp_path / "video.mp4")])
+
+        assert result.exit_code == 0
+        # No JSON lines in output
+        for line in result.output.splitlines():
+            if line.strip():
+                try:
+                    json.loads(line)
+                    assert False, f"Unexpected JSON line in non-json-progress output: {line}"
+                except (json.JSONDecodeError, ValueError):
+                    pass  # expected — plain text output
+
+
 class TestExportCommand:
     """Tests for export command."""
 

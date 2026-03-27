@@ -32,12 +32,6 @@ PIPELINE_STAGES = {
         "description": "generate embeddings",
         "requires": ["chunks"],
     },
-    "diarize": {
-        "output_files": ["diarization_segments.json", "speaker_map.json"],
-        "command": "vodtool diarize",
-        "description": "perform speaker diarization",
-        "requires": ["ingest"],
-    },
 }
 
 
