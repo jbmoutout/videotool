@@ -268,6 +268,75 @@ When implementing: `AssemblyAITranscriptionProvider` slots into the existing `Tr
 
 ---
 
+## 9. Subprocess Orphan Prevention on App Close (P1)
+
+**What:** Hook `WindowEvent::CloseRequested` in the Tauri app to send SIGTERM to the running Python subprocess before the window closes. Without this, closing the app mid-processing leaves a zombie vodtool process running in the background.
+
+**Why:** Users who close the app during processing (cancel intent) will have a `vodtool pipeline` process still consuming CPU/RAM. On M1/M2 Macs, this can be significant. On second app launch they may hit file conflicts (same project dir being processed).
+
+**Fix:** ~10 lines of Rust in `src-tauri/src/main.rs`:
+```rust
+app.on_window_event(|event| {
+    if let WindowEvent::CloseRequested { .. } = event.event() {
+        if let Some(child) = CHILD_PROCESS.lock().unwrap().take() {
+            let _ = child.kill();
+        }
+    }
+});
+```
+
+**Pros:**
+- Clean exit behavior — no zombie processes
+- Prevents file conflicts on rapid restart
+- Expected desktop app behavior
+
+**Cons:**
+- Minor complexity — need to share `Arc<Mutex<Option<Child>>>` between Tauri command and event handler
+
+**Context:**
+- Identified during /plan-eng-review Performance Review
+- Standard Tauri pattern, well-documented
+- Beta testers closing app mid-processing is a realistic scenario (user changes their mind)
+
+**Depends on:** `src-tauri/` scaffolded (Tauri implementation started)
+
+**Effort:** human ~1 hour / CC+gstack ~10 min
+
+---
+
+## 10. Auto-Update Mechanism for Tauri App (P2)
+
+**What:** Implement Tauri updater plugin (`tauri-plugin-updater`) so the app checks for new versions on launch and prompts the user to update. Without this, beta testers must manually download and reinstall new DMGs.
+
+**Why:** Beta iteration speed depends on getting fixes to testers quickly. Manual DMG re-downloads create friction — testers may run stale versions without knowing it.
+
+**What's needed:**
+- `tauri-plugin-updater` in `Cargo.toml`
+- Update check on app launch (non-blocking, background)
+- Simple prompt: "Version X.Y available — Update now / Later"
+- Signing infrastructure for update artifacts
+
+**Pros:**
+- Zero-friction updates for @lethar and @ouaiseddy
+- Enables fast iteration during beta
+- Required before public release
+
+**Cons:**
+- Code signing requires Apple Developer Program ($99/year) — ad-hoc signing acceptable for beta
+- Adds release workflow complexity (must sign update artifacts separately)
+- Not needed while user count is 2 (manual DMG is fine for initial beta)
+
+**Context:**
+- Identified during /plan-eng-review NOT in scope review
+- Blocked by TODO #7 (GitHub Actions release workflow must exist first)
+- Tauri updater docs: https://tauri.app/plugin/updater/
+
+**Depends on:** TODO #7 (GitHub Actions release workflow) complete
+
+**Effort:** human ~4 hours / CC+gstack ~20 min
+
+---
+
 ## NOT in scope (explicitly deferred)
 
 - **Segment editing** — No manual adjustment of topic boundaries. Users re-run with different settings if topics are wrong.
