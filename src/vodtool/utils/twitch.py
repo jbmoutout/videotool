@@ -39,7 +39,7 @@ def check_streamlink() -> bool:
         return False
 
 
-def download_vod(url: str, output_path: Path, quality: str = "720p,720p60,best") -> bool:
+def download_vod(url: str, output_path: Path, quality: str = "worst") -> bool:
     """
     Download a Twitch VOD to output_path using streamlink.
 
