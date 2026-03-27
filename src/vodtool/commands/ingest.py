@@ -134,7 +134,7 @@ def extract_audio(video_path: Path, output_path: Path, ffmpeg_path: str = "ffmpe
         return False
 
 
-def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "720p,720p60,best") -> Optional[Path]:
+def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "worst") -> Optional[Path]:
     """
     Ingest a video file or Twitch VOD URL and create a new project.
 
