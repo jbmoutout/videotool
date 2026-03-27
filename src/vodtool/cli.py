@@ -351,7 +351,18 @@ def pipeline(
     if topic_map_path is None:
         fail(5, "LLM topic detection failed")
 
-    if not json_progress:
+    if json_progress:
+        try:
+            topic_map = _json.loads(topic_map_path.read_text())
+            topic_count = len(topic_map)
+        except Exception:
+            topic_count = 0
+        sys.stdout.write(
+            _json.dumps({"done": True, "project_dir": str(project_dir), "topic_count": topic_count})
+            + "\n"
+        )
+        sys.stdout.flush()
+    else:
         console.print("\n[bold green]✓ Pipeline complete![/bold green]")
         console.print(f"[bold]Project:[/bold] {project_dir}")
         console.print("\n[bold]Next steps:[/bold]")
