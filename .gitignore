@@ -28,7 +28,19 @@ PIP_DELETE_THIS_DIRECTORY.txt
 
 # PyInstaller
 *.manifest
-*.spec
+# Note: vodtool.spec is tracked — it's the build spec, not a generated file
+
+# Tauri / Rust build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Node / frontend build artifacts
+node_modules/
+.svelte-kit/
+build/
+
+# PyInstaller output
+dist/vodtool
 
 # Installer logs
 pip-log.txt
