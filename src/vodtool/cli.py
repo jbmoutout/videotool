@@ -5,6 +5,12 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 from rich.console import Console
 
 from vodtool import __version__
