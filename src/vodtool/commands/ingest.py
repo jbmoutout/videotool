@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,13 @@ from typing import Optional
 
 from rich.console import Console
 
+from vodtool.utils.twitch import (
+    check_streamlink,
+    download_chat,
+    download_vod,
+    is_twitch_url,
+    parse_twitch_video_id,
+)
 from vodtool.utils.validation import (
     check_disk_space,
     check_file_size,
@@ -126,17 +134,48 @@ def extract_audio(video_path: Path, output_path: Path, ffmpeg_path: str = "ffmpe
         return False
 
 
-def ingest_video(input_video_path: Path, ffmpeg_path: str = "ffmpeg") -> Optional[Path]:
+def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg") -> Optional[Path]:
     """
-    Ingest a video file and create a new project.
+    Ingest a video file or Twitch VOD URL and create a new project.
 
     Args:
-        input_video_path: Path to the input video file
+        input_video_path: Path to a local video file, or a Twitch VOD URL
         ffmpeg_path: Path to ffmpeg binary
 
     Returns:
         Path to the created project directory, or None if ingestion failed
     """
+    twitch_url = None
+
+    # Handle Twitch URL input
+    if isinstance(input_video_path, str) and is_twitch_url(input_video_path):
+        twitch_url = input_video_path
+        video_id = parse_twitch_video_id(twitch_url)
+
+        if not check_streamlink():
+            console.print("[red]Error: streamlink not installed.[/red]")
+            console.print("Install it with: [bold]pip install streamlink[/bold]")
+            return None
+
+        console.print(f"[cyan]Twitch VOD detected: video {video_id}[/cyan]")
+        console.print("[cyan]Downloading VOD (this may take a while)...[/cyan]")
+
+        tmp_dir = tempfile.mkdtemp(prefix="vodtool_twitch_")
+        tmp_video = Path(tmp_dir) / "vod.mp4"
+
+        if not download_vod(twitch_url, tmp_video):
+            console.print("[red]Error: VOD download failed.[/red]")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return None
+
+        input_video_path = tmp_video
+
+    else:
+        if isinstance(input_video_path, str):
+            input_video_path = Path(input_video_path)
+        tmp_dir = None
+        video_id = None
+
     # Derive ffprobe path from ffmpeg path
     ffprobe_path = get_ffprobe_path(ffmpeg_path)
 
@@ -234,14 +273,30 @@ def ingest_video(input_video_path: Path, ffmpeg_path: str = "ffmpeg") -> Optiona
 
     logger.info(f"Extracted audio to: {audio_path}")
 
+    # Download chat replay for Twitch VODs
+    if twitch_url and video_id:
+        console.print("[cyan]Downloading chat replay...[/cyan]")
+        chat_path = project_dir / "chat.json"
+        ok = download_chat(video_id, chat_path)
+        if ok:
+            msg_count = len(json.loads(chat_path.read_text()))
+            console.print(f"[dim]Chat: {msg_count} messages saved[/dim]")
+        else:
+            console.print("[yellow]Warning: Chat download failed — continuing without chat[/yellow]")
+
+    # Clean up temp download dir
+    if tmp_dir:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
     # Create metadata
     metadata = {
         "project_id": project_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "source_filename": input_video_path.name,
-        "source_path": str(input_video_path.absolute()),
+        "source_filename": twitch_url or input_video_path.name,
+        "source_path": twitch_url or str(input_video_path.absolute()),
         "duration_seconds": duration,
         "audio_path": "audio.wav",
+        **({"twitch_video_id": video_id, "twitch_url": twitch_url} if twitch_url else {}),
     }
 
     meta_path = project_dir / "meta.json"
