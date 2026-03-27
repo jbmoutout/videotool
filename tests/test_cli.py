@@ -256,6 +256,116 @@ class TestPipelineJsonProgress:
                     pass  # expected — plain text output
 
 
+class TestPipelineIpc:
+    """Tests for pipeline --json-progress IPC protocol (Tauri integration)."""
+
+    def _mock_successful_pipeline(self, tmp_path, mock_ingest, mock_transcribe,
+                                   mock_chunks, mock_embed, mock_llm):
+        """Set up all pipeline step mocks for a successful run."""
+        project = tmp_path / "project"
+        project.mkdir()
+        topic_map = project / "topic_map_llm.json"
+        topic_map.write_text('[{"topic_id":"topic_0000"},{"topic_id":"topic_0001"},{"topic_id":"topic_0002"}]')
+        mock_ingest.return_value = project
+        mock_transcribe.return_value = project / "transcript_raw.json"
+        mock_chunks.return_value = project / "chunks.json"
+        mock_embed.return_value = project / "embeddings.sqlite"
+        mock_llm.return_value = topic_map
+
+    def test_progress_lines_have_correct_schema(self, tmp_path):
+        """Each progress line is valid JSON with step/total/pct/msg fields."""
+        import json
+
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.create_chunks") as mc, \
+             mock.patch("vodtool.cli.embed_chunks") as me, \
+             mock.patch("vodtool.cli.llm_topics") as ml:
+            self._mock_successful_pipeline(tmp_path, mi, mt, mc, me, ml)
+            result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
+
+        assert result.exit_code == 0
+        progress_lines = []
+        for line in result.output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            if "step" in obj and "done" not in obj:
+                progress_lines.append(obj)
+
+        assert len(progress_lines) == 5  # one per pipeline step
+        for obj in progress_lines:
+            assert "step" in obj
+            assert "total" in obj
+            assert "pct" in obj
+            assert "msg" in obj
+            assert obj["total"] == 5
+            assert 0.0 <= obj["pct"] <= 1.0
+
+    def test_done_message_emitted_on_success(self, tmp_path):
+        """On success, last JSON line is {done:true, project_dir:..., topic_count:N}."""
+        import json
+
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.create_chunks") as mc, \
+             mock.patch("vodtool.cli.embed_chunks") as me, \
+             mock.patch("vodtool.cli.llm_topics") as ml:
+            self._mock_successful_pipeline(tmp_path, mi, mt, mc, me, ml)
+            result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
+
+        assert result.exit_code == 0
+        json_lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        done_lines = [obj for obj in json_lines if obj.get("done") is True]
+
+        assert len(done_lines) == 1
+        done = done_lines[0]
+        assert done["done"] is True
+        assert "project_dir" in done
+        assert isinstance(done["topic_count"], int)
+
+    def test_done_topic_count_matches_topic_map(self, tmp_path):
+        """done.topic_count equals the number of topics in topic_map_llm.json."""
+        import json
+
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.create_chunks") as mc, \
+             mock.patch("vodtool.cli.embed_chunks") as me, \
+             mock.patch("vodtool.cli.llm_topics") as ml:
+            self._mock_successful_pipeline(tmp_path, mi, mt, mc, me, ml)
+            result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
+
+        assert result.exit_code == 0
+        json_lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        done = next(obj for obj in json_lines if obj.get("done") is True)
+
+        # _mock_successful_pipeline writes 3 topics
+        assert done["topic_count"] == 3
+
+    def test_error_line_emitted_on_step_failure(self, tmp_path):
+        """When a step fails, stdout contains {error:..., step:N} and exit code is 1."""
+        import json
+
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt:
+            mi.return_value = tmp_path / "project"
+            mt.return_value = None  # step 2 fails
+
+            result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
+
+        assert result.exit_code == 1
+        json_lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        error_lines = [obj for obj in json_lines if "error" in obj]
+
+        assert len(error_lines) == 1
+        assert error_lines[0]["step"] == 2
+        assert isinstance(error_lines[0]["error"], str)
+        # No done message on failure
+        assert not any(obj.get("done") is True for obj in json_lines)
+
+
 class TestExportCommand:
     """Tests for export command."""
 
