@@ -97,9 +97,13 @@ def _build_topic_extraction_prompt(
         [f"[{c['id']}] ({c['start']:.1f}s - {c['end']:.1f}s): {c['text']}" for c in chunks],
     )
 
-    max_topics_instruction = ""
     if max_topics:
         max_topics_instruction = f"\n- Create at most {max_topics} topics"
+    else:
+        max_topics_instruction = (
+            "\n- Create as many topics as the content naturally has"
+            " — don't merge distinct subjects just to reduce count"
+        )
 
     chat_section = ""
     if chat_context:
@@ -125,6 +129,9 @@ Rules:
 - Every chunk ID must belong to exactly one topic
 - Prefer fewer, broader topics over many small ones
 - Don't split mid-conversation just because vocabulary changes
+- CRITICAL: A discussion that evolves naturally is ONE topic — only create a new topic when the conversation clearly moves to a NEW unrelated subject
+- Ask yourself: "could a YouTube viewer reasonably watch these chunks in the same video?"
+  If yes, they belong to the same topic
 - Generate the "label" in the same language as the transcript
 - Use the host's slang, expressions, and vocabulary from the transcript
 - If chat replay is provided, use audience reactions to confirm topic boundaries
@@ -204,7 +211,7 @@ def segment_topics_with_llm(
     for attempt in range(MAX_RETRIES + 1):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-sonnet-4-6",
                 max_tokens=8192,
                 messages=[{"role": "user", "content": prompt}],
                 timeout=ANTHROPIC_TIMEOUT,

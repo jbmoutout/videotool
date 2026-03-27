@@ -26,6 +26,7 @@ from vodtool.commands.inspect_topic import inspect_topic_command
 from vodtool.commands.label_topics import label_topics_command
 from vodtool.commands.list_topics import list_topics_command
 from vodtool.commands.llm_topics import llm_topics
+from vodtool.commands.merge_topics import merge_topics_command
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.show_topics import show_topics_command
 from vodtool.commands.topics import cluster_topics
@@ -157,7 +158,7 @@ def embed(
 @app.command(name="segment-topics")
 def segment_topics_cmd(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topic segments"),
+    max_topics: int = typer.Option(6, "--max-topics", help="Maximum number of topic segments"),
 ):
     """
     Detect topic boundaries using embedding similarity.
@@ -172,7 +173,7 @@ def segment_topics_cmd(
 @app.command()
 def topics(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topics"),
+    max_topics: int = typer.Option(6, "--max-topics", help="Maximum number of topics"),
 ):
     """
     Cluster segments into topics.
@@ -277,22 +278,32 @@ def pipeline(
     language: Optional[str] = typer.Option(
         None, "--language", help="Language code (auto-detect if not specified)",
     ),
-    max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topics"),
+    max_topics: Optional[int] = typer.Option(
+        None, "--max-topics", help="Cap on topics (default: LLM decides naturally)",
+    ),
+    provider: str = typer.Option(
+        "auto",
+        "--provider",
+        help="LLM provider: 'anthropic', 'ollama', or 'auto' (tries ollama first)",
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", help="Model override (e.g. 'qwen2.5:3b' for Ollama)",
+    ),
     json_progress: bool = typer.Option(
         False, "--json-progress", help="Emit JSON progress lines (for Tauri IPC)"
     ),
 ):
     """
-    Run full pipeline: ingest → transcribe → chunks → embed → topics → label.
+    Run full pipeline: ingest → transcribe → chunks → embed → llm-topics.
 
     One command to process a video from start to labeled topics.
-    With --json-progress, emits lines like: {"step":1,"total":7,"pct":0.14,"msg":"..."}
+    With --json-progress, emits lines like: {"step":1,"total":5,"pct":0.2,"msg":"..."}
     """
     import json as _json
     import sys
 
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
-    total = 7
+    total = 5
 
     def progress(step: int, msg: str):
         if json_progress:
@@ -334,23 +345,11 @@ def pipeline(
     if db_path is None:
         fail(4, "Embedding failed")
 
-    # Step 5: Segment topics
-    progress(5, "Detecting topic boundaries...")
-    segments_path = segment_topics(project_dir, max_topics)
-    if segments_path is None:
-        fail(5, "Topic segmentation failed")
-
-    # Step 6: Cluster topics
-    progress(6, "Clustering topics...")
-    topic_map_path = cluster_topics(project_dir, max_topics)
+    # Step 5: LLM topic detection (replaces segment-topics + topics + label-topics)
+    progress(5, "Detecting topics with LLM...")
+    topic_map_path = llm_topics(project_dir, max_topics, provider, model)
     if topic_map_path is None:
-        fail(6, "Topic clustering failed")
-
-    # Step 7: Label topics
-    progress(7, "Labeling topics...")
-    labeled_path = label_topics_command(project_dir, force=True)
-    if labeled_path is None:
-        fail(7, "Topic labeling failed")
+        fail(5, "LLM topic detection failed")
 
     if not json_progress:
         console.print("\n[bold green]✓ Pipeline complete![/bold green]")
@@ -470,6 +469,29 @@ def compare_llm_cmd(
     from vodtool.commands.compare_llm import compare_llm_topics
 
     compare_llm_topics(project_path, max_topics, ollama_model)
+
+
+@app.command(name="merge-topics")
+def merge_topics(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+    topic_a: str = typer.Argument(..., help="Topic to keep (e.g. topic_0002)"),
+    topic_b: str = typer.Argument(..., help="Topic to absorb into topic_a"),
+    source: str = typer.Option(
+        "auto",
+        "--source",
+        "-s",
+        help="Topic map source: 'llm', 'labeled', 'basic', or 'auto' (default)",
+    ),
+):
+    """
+    Merge two topics into one.
+
+    Combines topic_b into topic_a (keeps topic_a's label), then renumbers all topics.
+    Edits the topic map file in place.
+    """
+    result = merge_topics_command(project_path, topic_a, topic_b, source)
+    if result is None:
+        raise typer.Exit(code=1)
 
 
 @app.command(name="list-topics")
