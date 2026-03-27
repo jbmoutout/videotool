@@ -172,6 +172,102 @@ Generated from /plan-eng-review on 2026-03-26
 
 ---
 
+## 6. Audio Chunk Timestamp Stitching Utility (P0)
+
+**What:** Implement `stitch_transcripts(chunks: list[TranscriptChunk]) -> Transcript` that merges per-chunk Whisper API results into a single transcript with correct absolute timestamps.
+
+**Why:** OpenAI Whisper API has a 25MB file size limit. A 4-hour VOD produces 200-400MB of audio — must be chunked into ~10-minute segments. Each chunk's timestamps are relative (start at 0s), but must be offset by the chunk's start time to produce correct absolute timestamps. Without this, a topic that starts at 2h30m would appear at 0m30s in the stitched result. This breaks all downstream topic boundary calculations.
+
+**Critical correctness requirements:**
+- Chunk N starts at `N * chunk_duration` seconds → all its word timestamps must be offset by that value
+- Words at chunk boundaries must appear in exactly one chunk (no duplicates, no drops)
+- API failure on chunk N of M must raise with which chunk failed (not a silent partial result)
+
+**Pros:**
+- Required for any VOD longer than ~30 minutes (25MB ≈ 30 min @ 128kbps MP3)
+- Correctness is non-negotiable — wrong timestamps = wrong topic boundaries = wrong exports
+- Enables future accuracy improvements (Groq, AssemblyAI) with same stitching logic
+
+**Cons:**
+- Adds complexity to transcribe pipeline
+- Boundary handling requires careful off-by-one attention
+
+**Context:**
+- Identified during /plan-eng-review Architecture Review (Issue #4)
+- `TranscriptionProvider` abstraction (`src/vodtool/transcribe.py`) is prerequisite — provider returns per-chunk results, stitcher merges them
+- Tests required: `tests/test_transcribe.py` (7 tests covering: ≤25MB direct call, >25MB chunking, timestamp offset correctness, boundary deduplication, chunk failure error, missing API key, file not found)
+- The CRITICAL test: chunk 2 starts at 600s → its timestamps must be offset by 600s in stitched output
+
+**Depends on:** `TranscriptionProvider` abstraction implemented in `src/vodtool/transcribe.py`
+
+**Effort:** human ~1 day / CC+gstack ~30 min
+
+---
+
+## 7. GitHub Actions Release Workflow for Tauri DMG (P0)
+
+**What:** Create `.github/workflows/release.yml` using `tauri-apps/tauri-action` to build and publish the Tauri desktop app as a Mac DMG (and eventually Windows installer) on every version tag push.
+
+**Why:** Code without distribution is code nobody can use. The Tauri app has no value if users can't install it. A manual build process is not acceptable for beta — we need automated artifact generation so a professional editor beta tester and a DIY streamer beta tester can download and install without compiling from source.
+
+**Required:**
+- Trigger: `push` to tags matching `v*` (e.g., `v0.1.0`)
+- Matrix: `macos-latest` (Mac DMG first, Windows later)
+- Action: `tauri-apps/tauri-action@v0` with `tagName`, `releaseName`, `releaseBody`, `releaseDraft: true`
+- Secrets: `TAURI_PRIVATE_KEY`, `TAURI_KEY_PASSWORD` for code signing
+- Output: GitHub Release with `.dmg` attached (draft until manual review)
+
+**Pros:**
+- One-command release: `git tag v0.1.0 && git push origin v0.1.0` → DMG ready in 5 min
+- Mac code signing prevents "unidentified developer" warning on first launch
+- Draft releases allow QA before public announcement
+
+**Cons:**
+- Mac code signing requires Apple Developer Program ($99/year) or ad-hoc signing (warning shown)
+- Windows build requires separate `windows-latest` runner (add in follow-up)
+
+**Context:**
+- Identified during /plan-eng-review Architecture Review (Distribution Issue)
+- Tauri v2 release workflow documented at: https://tauri.app/distribute/
+- The Tauri app lives in `src-tauri/` (to be created)
+- Note: For MVP beta, ad-hoc signing (no cert) is acceptable — users right-click → Open to bypass Gatekeeper
+
+**Depends on:** `src-tauri/` directory created with `tauri.conf.json`
+
+**Effort:** human ~4 hours / CC+gstack ~15 min
+
+---
+
+## 8. React Stream Content Mode (`--content-type react`) (P1)
+
+**What:** Add `--content-type react|talk|gaming` flag to `vodtool pipeline` and `vodtool llm-topics`. In `react` mode, the LLM topic extraction prompt is specialized for react stream structure — producing topic labels like `"Réaction: clip Gotaga"`, `"Tangente chat"`, `"Intro/Outro"` instead of generic subject labels.
+
+**Why:** a DIY streamer beta tester and a professional editor beta tester work exclusively with react streams — a streamer reacts to YouTube videos live. The transcript is a mixed-down signal (streamer mic + YouTube desktop audio) with no clean source separation possible (OBS multi-track not used). However, topic boundaries in react streams are linguistically identifiable (`"okay on regarde..."`, `"attends attends"`). The LLM just needs a prompt that understands react content structure.
+
+**What was ruled out for v0:**
+- Video frame sampling to detect YouTube player → streamer speaks WITH the react layout visible simultaneously, so frames give no separation signal
+- OBS multi-track recording (Track 1: mic, Track 2: desktop) → streamers won't have this configured
+- Audio source separation (demucs/spleeter) → designed for music, not concurrent speech streams
+- `pyannote.audio` local diarization → heavy local ML dep, dropped from v0 cloud-first pivot
+
+**The v1 path (acoustic diarization IS feasible):**
+Streamer mic (close, direct, clean) and YouTube desktop audio (compressed, re-encoded) are acoustically very distinguishable. AssemblyAI Universal-2 returns transcript + speaker labels in a single API call — no separate diarization step needed. `[Speaker A]` = streamer, `[Speaker B]` = YouTube video. This makes react topic segmentation clean and reliable.
+
+When implementing: `AssemblyAITranscriptionProvider` slots into the existing `TranscriptionProvider` interface — `Transcript` model gets an optional `speaker_labels` field.
+
+**Architecture notes:**
+- `TranscriptionProvider` interface: `transcribe(audio_path: Path) -> Transcript`
+- v0: `OpenAITranscriptionProvider` — no speaker labels
+- v1: `AssemblyAITranscriptionProvider` — transcript + speaker labels in one call
+- React mode prompt uses speaker labels when present, falls back to linguistic detection when absent
+- No pipeline changes between v0 and v1 — just provider swap + prompt specialization
+
+**Depends on:** MVP validated with a DIY streamer beta tester — confirm react content is the primary use case
+
+**Effort:** human ~2 hours / CC+gstack ~15 min
+
+---
+
 ## NOT in scope (explicitly deferred)
 
 - **Segment editing** — No manual adjustment of topic boundaries. Users re-run with different settings if topics are wrong.
