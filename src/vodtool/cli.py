@@ -120,18 +120,24 @@ def chunks(
 @app.command()
 def embed(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    model: str = typer.Option(
-        "sentence-transformers/all-MiniLM-L6-v2",
+    provider: str = typer.Option(
+        "openai",
+        "--provider",
+        help="Embedding provider: 'openai' (default) or 'local' (sentence-transformers)",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
         "--model",
-        help="Sentence transformer model",
+        help="Model override (e.g., 'text-embedding-3-large' for OpenAI)",
     ),
 ):
     """
     Generate embeddings for transcript chunks.
 
-    Computes semantic embeddings using sentence-transformers.
+    Uses OpenAI text-embedding-3-small by default (requires OPENAI_API_KEY).
+    Use --provider local for offline sentence-transformers.
     """
-    db_path = embed_chunks(project_path, model)
+    db_path = embed_chunks(project_path, provider, model)
     if db_path is None:
         raise typer.Exit(code=1)
 
@@ -250,77 +256,92 @@ def export(
 @app.command()
 def pipeline(
     input_video_path: Path = typer.Argument(..., help="Path to input video file"),
-    whisper_model: str = typer.Option("small", "--whisper-model", help="Whisper model size"),
+    whisper_model: str = typer.Option("whisper-1", "--whisper-model", help="Whisper model"),
     language: Optional[str] = typer.Option(
         None, "--language", help="Language code (auto-detect if not specified)",
     ),
     max_topics: int = typer.Option(4, "--max-topics", help="Maximum number of topics"),
-    with_diarize: bool = typer.Option(False, "--diarize", help="Include speaker diarization"),
-    num_main: int = typer.Option(2, "--num-main", help="Number of main speakers (if diarizing)"),
+    json_progress: bool = typer.Option(
+        False, "--json-progress", help="Emit JSON progress lines (for Tauri IPC)"
+    ),
 ):
     """
     Run full pipeline: ingest → transcribe → chunks → embed → topics → label.
 
     One command to process a video from start to labeled topics.
+    With --json-progress, emits lines like: {"step":1,"total":7,"pct":0.14,"msg":"..."}
     """
+    import json as _json
+    import sys
+
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
+    total = 7
+
+    def progress(step: int, msg: str):
+        if json_progress:
+            sys.stdout.write(
+                _json.dumps({"step": step, "total": total, "pct": round(step / total, 3), "msg": msg})
+                + "\n"
+            )
+            sys.stdout.flush()
+        else:
+            console.print(f"\n[bold cyan]Step {step}/{total}: {msg}[/bold cyan]")
+
+    def fail(step: int, msg: str):
+        if json_progress:
+            sys.stdout.write(_json.dumps({"error": msg, "step": step}) + "\n")
+            sys.stdout.flush()
+        raise typer.Exit(code=1)
 
     # Step 1: Ingest
-    console.print("\n[bold cyan]Step 1/8: Ingesting video...[/bold cyan]")
+    progress(1, "Ingesting video...")
     project_dir = ingest_video(input_video_path, ffmpeg_path)
     if project_dir is None:
-        raise typer.Exit(code=1)
+        fail(1, "Ingest failed")
 
     # Step 2: Transcribe
-    console.print("\n[bold cyan]Step 2/8: Transcribing audio...[/bold cyan]")
+    progress(2, "Transcribing audio...")
     transcript_path = transcribe_audio(project_dir, whisper_model, False, language)
     if transcript_path is None:
-        raise typer.Exit(code=1)
+        fail(2, "Transcription failed")
 
-    # Step 3: Diarize (optional)
-    if with_diarize:
-        console.print("\n[bold cyan]Step 3/8: Diarizing speakers...[/bold cyan]")
-        diarize_command(project_dir, num_main)
-    else:
-        console.print("\n[dim]Step 3/8: Skipping diarization (use --diarize to enable)[/dim]")
-
-    # Step 4: Chunks
-    console.print("\n[bold cyan]Step 4/8: Creating semantic chunks...[/bold cyan]")
+    # Step 3: Chunks
+    progress(3, "Creating semantic chunks...")
     chunks_path = create_chunks(project_dir)
     if chunks_path is None:
-        raise typer.Exit(code=1)
+        fail(3, "Chunking failed")
 
-    # Step 5: Embed
-    console.print("\n[bold cyan]Step 5/8: Generating embeddings...[/bold cyan]")
+    # Step 4: Embed
+    progress(4, "Generating embeddings...")
     db_path = embed_chunks(project_dir)
     if db_path is None:
-        raise typer.Exit(code=1)
+        fail(4, "Embedding failed")
 
-    # Step 6: Segment topics
-    console.print("\n[bold cyan]Step 6/8: Detecting topic boundaries...[/bold cyan]")
+    # Step 5: Segment topics
+    progress(5, "Detecting topic boundaries...")
     segments_path = segment_topics(project_dir, max_topics)
     if segments_path is None:
-        raise typer.Exit(code=1)
+        fail(5, "Topic segmentation failed")
 
-    # Step 7: Cluster topics
-    console.print("\n[bold cyan]Step 7/8: Clustering topics...[/bold cyan]")
+    # Step 6: Cluster topics
+    progress(6, "Clustering topics...")
     topic_map_path = cluster_topics(project_dir, max_topics)
     if topic_map_path is None:
-        raise typer.Exit(code=1)
+        fail(6, "Topic clustering failed")
 
-    # Step 8: Label topics
-    console.print("\n[bold cyan]Step 8/8: Labeling topics...[/bold cyan]")
+    # Step 7: Label topics
+    progress(7, "Labeling topics...")
     labeled_path = label_topics_command(project_dir, force=True)
     if labeled_path is None:
-        raise typer.Exit(code=1)
+        fail(7, "Topic labeling failed")
 
-    # Summary
-    console.print("\n[bold green]✓ Pipeline complete![/bold green]")
-    console.print(f"[bold]Project:[/bold] {project_dir}")
-    console.print("\n[bold]Next steps:[/bold]")
-    console.print(f"  vodtool show-topics {project_dir}")
-    console.print(f"  vodtool cutplan {project_dir} --topic topic_0000")
-    console.print(f"  vodtool export {project_dir}")
+    if not json_progress:
+        console.print("\n[bold green]✓ Pipeline complete![/bold green]")
+        console.print(f"[bold]Project:[/bold] {project_dir}")
+        console.print("\n[bold]Next steps:[/bold]")
+        console.print(f"  vodtool show-topics {project_dir}")
+        console.print(f"  vodtool cutplan {project_dir} --topic topic_0000")
+        console.print(f"  vodtool export {project_dir}")
 
 
 @app.command(name="inspect-topic")
