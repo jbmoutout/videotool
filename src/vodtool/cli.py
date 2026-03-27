@@ -75,12 +75,13 @@ def main(
 
 @app.command()
 def ingest(
-    input_video_path: Path = typer.Argument(..., help="Path to input video file"),
+    input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
 ):
     """
-    Ingest a video file and create a new project.
+    Ingest a video file or Twitch VOD URL and create a new project.
 
     Creates a project folder with extracted audio and metadata.
+    Accepts a local file path or a Twitch URL (https://twitch.tv/videos/<id>).
     """
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
     project_dir = ingest_video(input_video_path, ffmpeg_path)
@@ -261,7 +262,7 @@ def export(
 
 @app.command()
 def pipeline(
-    input_video_path: Path = typer.Argument(..., help="Path to input video file"),
+    input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
     whisper_model: str = typer.Option("whisper-1", "--whisper-model", help="Whisper model"),
     language: Optional[str] = typer.Option(
         None, "--language", help="Language code (auto-detect if not specified)",
