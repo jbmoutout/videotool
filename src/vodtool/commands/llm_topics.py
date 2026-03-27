@@ -300,6 +300,12 @@ def llm_topics(
     logger.info(f"Loaded {len(chunks)} chunks")
     console.print(f"[cyan]Loaded {len(chunks)} chunks[/cyan]")
 
+    # Load chat context if available (Twitch VODs)
+    from vodtool.utils.twitch import summarize_chat_for_prompt
+    chat_context = summarize_chat_for_prompt(project_path / "chat.json")
+    if chat_context:
+        console.print("[dim]Chat replay found — including as topic signal[/dim]")
+
     # Call LLM for topic segmentation based on provider
     llm_result = None
 
@@ -313,6 +319,7 @@ def llm_topics(
                 chunks,
                 model=model or "qwen2.5:3b",
                 max_topics=max_topics,
+                chat_context=chat_context,
             )
             console.print("[green]✓ Used local LLM (Ollama)[/green]")
         except (ImportError, ConnectionError) as e:
@@ -323,7 +330,7 @@ def llm_topics(
                 from vodtool.llm import get_anthropic_client, segment_topics_with_llm
 
                 client = get_anthropic_client()
-                llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics)
+                llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics, chat_context=chat_context)
                 console.print("[green]✓ Used Anthropic API[/green]")
             except Exception as api_error:
                 console.print(f"[red]Error calling Anthropic API: {api_error}[/red]")
@@ -339,6 +346,7 @@ def llm_topics(
                 chunks,
                 model=model or "qwen2.5:3b",
                 max_topics=max_topics,
+                chat_context=chat_context,
             )
             console.print("[green]✓ Used local LLM (Ollama)[/green]")
         except Exception as e:
@@ -352,7 +360,7 @@ def llm_topics(
             from vodtool.llm import get_anthropic_client, segment_topics_with_llm
 
             client = get_anthropic_client()
-            llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics)
+            llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics, chat_context=chat_context)
             console.print("[green]✓ Used Anthropic API[/green]")
         except Exception as e:
             console.print(f"[red]Error calling Anthropic API: {e}[/red]")

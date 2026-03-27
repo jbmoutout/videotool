@@ -79,6 +79,7 @@ def get_ollama_client(model: str = "qwen2.5:3b"):
 def _build_topic_extraction_prompt(
     chunks: list[dict],
     max_topics: Optional[int] = None,
+    chat_context: Optional[str] = None,
 ) -> str:
     """
     Build the prompt for topic extraction (shared between providers).
@@ -86,6 +87,7 @@ def _build_topic_extraction_prompt(
     Args:
         chunks: List of chunks with id, start, end, text
         max_topics: Optional maximum number of topics to create
+        chat_context: Optional formatted Twitch chat replay string
 
     Returns:
         Formatted prompt string
@@ -99,8 +101,16 @@ def _build_topic_extraction_prompt(
     if max_topics:
         max_topics_instruction = f"\n- Create at most {max_topics} topics"
 
-    prompt = f"""Analyze this video transcript and identify the distinct topics discussed.
+    chat_section = ""
+    if chat_context:
+        chat_section = f"""
+TWITCH CHAT REPLAY (sampled — use as signal for audience reactions and topic shifts):
+{chat_context}
 
+"""
+
+    prompt = f"""Analyze this video transcript and identify the distinct topics discussed.
+{chat_section}
 TRANSCRIPT (with chunk IDs and timestamps):
 {chunks_text}
 
@@ -117,6 +127,7 @@ Rules:
 - Don't split mid-conversation just because vocabulary changes
 - Generate the "label" in the same language as the transcript
 - Use the host's slang, expressions, and vocabulary from the transcript
+- If chat replay is provided, use audience reactions to confirm topic boundaries
 
 # CRITICAL for summaries - FACTUAL but with the host's voice:
 # - Describe WHAT the topic contains, not what the host does
@@ -165,6 +176,7 @@ def segment_topics_with_llm(
     client,
     chunks: list[dict],
     max_topics: Optional[int] = None,
+    chat_context: Optional[str] = None,
 ) -> list[dict]:
     """
     Have Claude analyze chunks and return topic structure.
@@ -173,6 +185,7 @@ def segment_topics_with_llm(
         client: Anthropic client
         chunks: List of chunks with id, start, end, text
         max_topics: Optional maximum number of topics to create
+        chat_context: Optional Twitch chat replay string for context
 
     Returns:
         List of topic dicts with label, chunk_ids, summary
@@ -182,7 +195,7 @@ def segment_topics_with_llm(
         ValueError: If API returns invalid JSON
     """
     # Build prompt using shared logic
-    prompt = _build_topic_extraction_prompt(chunks, max_topics)
+    prompt = _build_topic_extraction_prompt(chunks, max_topics, chat_context)
 
     logger.info(f"Sending {len(chunks)} chunks to Claude for topic segmentation")
 
@@ -251,6 +264,7 @@ def segment_topics_with_local_llm(
     chunks: list[dict],
     model: str = "qwen2.5:3b",
     max_topics: Optional[int] = None,
+    chat_context: Optional[str] = None,
 ) -> list[dict]:
     """
     Use local LLM (via Ollama) to analyze chunks and return topic structure.
@@ -262,6 +276,7 @@ def segment_topics_with_local_llm(
         chunks: List of chunks with id, start, end, text
         model: Ollama model name (default: qwen2.5:3b)
         max_topics: Optional maximum number of topics to create
+        chat_context: Optional Twitch chat replay string for context
 
     Returns:
         List of topic dicts with label, chunk_ids, summary
@@ -273,7 +288,7 @@ def segment_topics_with_local_llm(
     client = get_ollama_client(model)
 
     # Check if we need to batch the input
-    full_prompt = _build_topic_extraction_prompt(chunks, max_topics)
+    full_prompt = _build_topic_extraction_prompt(chunks, max_topics, chat_context)
     estimated_tokens = _estimate_token_count(full_prompt)
 
     # Context window limit (extremely conservative for small models on limited RAM)
