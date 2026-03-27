@@ -77,9 +77,9 @@ def main(
 def ingest(
     input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
     quality: str = typer.Option(
-        "720p,720p60,best",
+        "worst",
         "--quality",
-        help="Video quality for Twitch downloads (e.g. '720p', '1080p60', 'best')",
+        help="Video quality for Twitch downloads (default: 'worst', use 'best' for export quality)",
     ),
 ):
     """
@@ -269,9 +269,9 @@ def export(
 def pipeline(
     input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
     quality: str = typer.Option(
-        "720p,720p60,best",
+        "worst",
         "--quality",
-        help="Video quality for Twitch downloads (e.g. '720p', '1080p60', 'best')",
+        help="Video quality for Twitch downloads (default: 'worst', use 'best' for export quality)",
     ),
     whisper_model: str = typer.Option("whisper-1", "--whisper-model", help="Whisper model"),
     language: Optional[str] = typer.Option(
