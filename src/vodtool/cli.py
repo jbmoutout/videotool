@@ -516,6 +516,21 @@ def pipeline(
         console.print(f"  vodtool export {project_dir}")
 
 
+@app.command(name="llm-beats")
+def llm_beats_cmd(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+):
+    """
+    Detect narrative beats from an existing transcript.
+
+    Runs only the LLM beat detection step (no ingest, no transcribe).
+    Requires transcript_raw.json in the project directory.
+    """
+    result = detect_beats(project_path)
+    if result is None:
+        raise typer.Exit(code=1)
+
+
 @app.command(name="inspect-topic")
 def inspect_topic(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
