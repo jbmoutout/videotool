@@ -8,6 +8,9 @@ from typing import Optional
 
 from rich.console import Console
 
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.validation import validate_project_path
+
 console = Console()
 logger = logging.getLogger("vodtool")
 
@@ -274,12 +277,9 @@ def export_video(project_path: Path, ffmpeg_path: str = "ffmpeg") -> Optional[Pa
         return None
 
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Check for cutplan.json
@@ -292,11 +292,8 @@ def export_video(project_path: Path, ffmpeg_path: str = "ffmpeg") -> Optional[Pa
     # Load cutplan
     console.print("[cyan]Loading cut plan...[/cyan]")
 
-    try:
-        with cutplan_path.open(encoding="utf-8") as f:
-            cutplan = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading cut plan: {e}[/red]")
+    cutplan = safe_read_json(cutplan_path)
+    if cutplan is None:
         return None
 
     keep_spans = cutplan.get("keep_spans", [])
@@ -355,14 +352,7 @@ def export_video(project_path: Path, ffmpeg_path: str = "ffmpeg") -> Optional[Pa
 
     # Load chunks for export index
     chunks_path = project_path / "chunks.json"
-    chunks_data = []
-
-    if chunks_path.exists():
-        try:
-            with chunks_path.open(encoding="utf-8") as f:
-                chunks_data = json.load(f)
-        except Exception as e:
-            logger.warning(f"Could not load chunks for index: {e}")
+    chunks_data = safe_read_json(chunks_path) or []
 
     # Create export index
     console.print("[cyan]Creating export index...[/cyan]")

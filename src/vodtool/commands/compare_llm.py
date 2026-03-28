@@ -9,6 +9,8 @@ from typing import Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -30,12 +32,9 @@ def compare_llm_topics(
     from vodtool.commands.llm_topics import build_topic_map
 
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return
 
     # Check for chunks.json
@@ -47,11 +46,8 @@ def compare_llm_topics(
 
     # Load chunks
     console.print("[cyan]Loading chunks...[/cyan]")
-    try:
-        with chunks_path.open(encoding="utf-8") as f:
-            chunks = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading chunks: {e}[/red]")
+    chunks = safe_read_json(chunks_path)
+    if chunks is None:
         return
 
     console.print(f"[cyan]Loaded {len(chunks)} chunks[/cyan]\n")
