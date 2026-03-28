@@ -136,7 +136,7 @@
   function registerListeners() {
     Promise.all([
       listen<ProgressMsg>("pipeline-progress", (e) => {
-        // Download sub-events: always take priority
+        // Download sub-events: real-time download progress
         if (e.payload.download_pct != null) {
           hasDownloadPct = true;
           progress = e.payload;
@@ -146,25 +146,25 @@
           return;
         }
 
-        // Regular step event
+        // Regular step event — always update log
         const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
         if (processLog.at(-1) !== entry) {
           processLog = [...processLog, entry];
         }
         progress = e.payload;
 
-        // Only reset download mode when moving past step 1
-        if (e.payload.step > 1) {
-          hasDownloadPct = false;
+        // Step 1 without download_pct: skip targetPct update if download
+        // is active (download_pct events are driving the bar)
+        if (e.payload.step === 1 && hasDownloadPct) {
+          return;
         }
 
-        // Don't override progress if download is in progress
-        if (!hasDownloadPct) {
-          targetPct = Math.round(e.payload.pct * 100);
-          waitMsgIdx = 0;
-          const msgs = WAIT_MSGS[e.payload.step] ?? WAIT_MSGS[1];
-          currentWaitMsg = msgs[0];
-        }
+        // Any step > 1, or step 1 with no download: update normally
+        hasDownloadPct = false;
+        targetPct = Math.round(e.payload.pct * 100);
+        waitMsgIdx = 0;
+        const msgs = WAIT_MSGS[e.payload.step] ?? WAIT_MSGS[1];
+        currentWaitMsg = msgs[0];
       }),
       listen<DoneMsg>("pipeline-done", async (e) => {
         targetPct = 100;
