@@ -110,7 +110,7 @@ def download_vod_with_progress(
                 # total from growth rate over the first 10s
                 pass
 
-            if estimated_total == 0 and current_size > 5_000_000:
+            if estimated_total == 0 and current_size > 1_000_000:
                 # After 5MB, estimate total from growth rate
                 # Assume we're ~10s in, typical VOD is 1-4 hours
                 # Use a rough heuristic: multiply current rate by expected duration
