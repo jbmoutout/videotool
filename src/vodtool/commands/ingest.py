@@ -142,7 +142,7 @@ def extract_audio(video_path: Path, output_path: Path, ffmpeg_path: str = "ffmpe
         return False
 
 
-def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "worst", download_progress_callback=None) -> Optional[Path]:
+def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "worst", download_progress_callback=None, status_callback=None) -> Optional[Path]:
     """
     Ingest a video file or Twitch VOD URL and create a new project.
 
@@ -263,18 +263,24 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
         console.print(f"[red]Error: Cannot create project directory: {e}[/red]")
         return None
 
-    # Copy source video
+    # Move or link source video (avoid duplicating multi-GB files)
     source_extension = input_video_path.suffix
     source_filename = f"source{source_extension}"
     source_path = project_dir / source_filename
 
-    console.print("[cyan]Copying source video...[/cyan]")
     try:
-        shutil.copy2(input_video_path, source_path)
-        logger.info(f"Copied source video to: {source_path}")
+        if tmp_dir:
+            # Twitch download: move from temp dir (no copy needed)
+            console.print("[cyan]Moving downloaded video...[/cyan]")
+            shutil.move(str(input_video_path), str(source_path))
+        else:
+            # Local file: symlink to avoid duplicating large files
+            console.print("[cyan]Linking source video...[/cyan]")
+            source_path.symlink_to(input_video_path.resolve())
+        logger.info(f"Source video at: {source_path}")
     except (OSError, IOError, shutil.Error) as e:
-        _last_error = f"Failed to copy video: {e}"
-        console.print(f"[red]Error copying video: {e}[/red]")
+        _last_error = f"Failed to set up video: {e}"
+        console.print(f"[red]Error setting up video: {e}[/red]")
         console.print("[dim]Cleaning up project directory...[/dim]")
         shutil.rmtree(project_dir, ignore_errors=True)
         return None
@@ -288,6 +294,8 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
     # Extract audio
     audio_path = project_dir / "audio.wav"
     console.print("[cyan]Extracting audio (mono, 16kHz)...[/cyan]")
+    if status_callback:
+        status_callback("extracting audio...")
 
     if not extract_audio(source_path, audio_path, ffmpeg_path):
         _last_error = "Audio extraction failed"
