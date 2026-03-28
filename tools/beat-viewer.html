@@ -172,16 +172,26 @@ function render() {
   }
 }
 
-// ── Playhead sync ──────────────────────────────────────────────────
+// ── Playhead sync (only runs while playing to save battery) ────────
+let rafId = null;
 function updatePlayhead() {
   if (duration > 0) {
     const timelineW = timeline.clientWidth;
     const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
     playhead.style.left = x + "px";
   }
-  requestAnimationFrame(updatePlayhead);
+  rafId = requestAnimationFrame(updatePlayhead);
 }
-requestAnimationFrame(updatePlayhead);
+function syncPlayhead() {
+  if (duration > 0) {
+    const timelineW = timeline.clientWidth;
+    const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
+    playhead.style.left = x + "px";
+  }
+}
+player.addEventListener("play", () => { if (!rafId) updatePlayhead(); });
+player.addEventListener("pause", () => { if (rafId) { cancelAnimationFrame(rafId); rafId = null; } syncPlayhead(); });
+player.addEventListener("seeked", syncPlayhead);
 
 // ── Click-to-seek on timeline background ───────────────────────────
 timeline.addEventListener("click", (e) => {
