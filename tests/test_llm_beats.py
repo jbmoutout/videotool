@@ -153,3 +153,60 @@ class TestDetectBeats:
 
         result = detect_beats(tmp_path)
         assert result is None
+
+    def test_no_project_dir(self, tmp_path):
+        """Nonexistent project directory returns None."""
+        from vodtool.commands.llm_beats import detect_beats, get_last_error
+
+        result = detect_beats(tmp_path / "nonexistent")
+        assert result is None
+        assert get_last_error() is not None
+
+    def test_no_transcript(self, tmp_path):
+        """Project without transcript_raw.json returns None."""
+        from vodtool.commands.llm_beats import detect_beats, get_last_error
+
+        (tmp_path / "meta.json").write_text(json.dumps({"duration_seconds": 60}))
+        result = detect_beats(tmp_path)
+        assert result is None
+        assert get_last_error() is not None
+        assert "transcript" in get_last_error().lower()
+
+    def test_empty_segments(self, tmp_path):
+        """Transcript with empty segments list returns None."""
+        from vodtool.commands.llm_beats import detect_beats, get_last_error
+
+        (tmp_path / "meta.json").write_text(json.dumps({"duration_seconds": 60}))
+        (tmp_path / "transcript_raw.json").write_text(json.dumps({
+            "segments": [],
+        }))
+        result = detect_beats(tmp_path)
+        assert result is None
+        assert get_last_error() is not None
+
+    def test_write_failure_sets_last_error(self, tmp_path, monkeypatch):
+        """When safe_write_json fails, _last_error is set."""
+        from vodtool.commands.llm_beats import detect_beats, get_last_error
+
+        (tmp_path / "meta.json").write_text(json.dumps({"duration_seconds": 3600}))
+        (tmp_path / "transcript_raw.json").write_text(json.dumps({
+            "segments": [{"start": 0, "end": 5, "text": "hello"}],
+        }))
+
+        mock_response = mock.Mock()
+        mock_response.content = [mock.Mock(text=json.dumps(VALID_BEATS))]
+
+        mock_client = mock.Mock()
+        mock_client.messages.create.return_value = mock_response
+
+        monkeypatch.setattr(
+            "vodtool.llm.get_anthropic_client", lambda: mock_client
+        )
+        monkeypatch.setattr(
+            "vodtool.commands.llm_beats.safe_write_json", lambda *a, **kw: False
+        )
+
+        result = detect_beats(tmp_path)
+        assert result is None
+        assert get_last_error() is not None
+        assert "write" in get_last_error().lower()
