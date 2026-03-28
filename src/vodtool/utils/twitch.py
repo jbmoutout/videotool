@@ -63,6 +63,81 @@ def download_vod(url: str, output_path: Path, quality: str = "worst") -> bool:
     return output_path.exists() and output_path.stat().st_size > 0
 
 
+def download_vod_with_progress(
+    url: str,
+    output_path: Path,
+    quality: str = "worst",
+    progress_callback=None,
+) -> bool:
+    """
+    Download a Twitch VOD with progress tracking via file size growth.
+
+    Spawns streamlink as a background process and polls the output file
+    size to estimate download progress.
+
+    Args:
+        url: Twitch VOD URL
+        output_path: Destination file path
+        quality: streamlink quality selector
+        progress_callback: Optional callable(pct: float) called with 0.0-1.0
+
+    Returns:
+        True on success, False on failure
+    """
+    logger.info(f"Downloading VOD: {url} (quality: {quality})")
+
+    proc = subprocess.Popen(
+        ["streamlink", url, quality, "--output", str(output_path)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    # Estimate expected file size from quality:
+    # worst (~400kbps) = ~180MB/hr, 720p (~2.5Mbps) = ~1.1GB/hr, best (~6Mbps) = ~2.7GB/hr
+    # We don't know the duration, so we estimate from file growth rate.
+    # After 10s of download, extrapolate total size from growth rate.
+    estimated_total = 0
+    last_size = 0
+
+    while proc.poll() is None:
+        time.sleep(2)
+        if output_path.exists():
+            current_size = output_path.stat().st_size
+            if estimated_total == 0 and current_size > 1_000_000:
+                # After first MB, read streamlink stderr for any duration hints
+                # Otherwise estimate: assume file grows ~linearly, estimate
+                # total from growth rate over the first 10s
+                pass
+
+            if estimated_total == 0 and current_size > 5_000_000:
+                # After 5MB, estimate total from growth rate
+                # Assume we're ~10s in, typical VOD is 1-4 hours
+                # Use a rough heuristic: multiply current rate by expected duration
+                # For now, just use a reasonable estimate: 500MB for worst, 2GB for 720p
+                if "worst" in quality:
+                    estimated_total = 500_000_000  # ~500MB
+                elif "best" in quality:
+                    estimated_total = 3_000_000_000  # ~3GB
+                else:
+                    estimated_total = 1_500_000_000  # ~1.5GB
+
+            if estimated_total > 0 and progress_callback:
+                pct = min(current_size / estimated_total, 0.95)
+                progress_callback(pct)
+
+            last_size = current_size
+
+    if proc.returncode != 0:
+        logger.error("streamlink failed")
+        return False
+
+    if progress_callback:
+        progress_callback(1.0)
+
+    return output_path.exists() and output_path.stat().st_size > 0
+
+
 def download_chat(video_id: str, output_path: Path) -> bool:
     """
     Download chat replay for a Twitch VOD via the GQL API.
