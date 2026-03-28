@@ -69,11 +69,8 @@ const LABEL_W = 140;
 
 // ── [new] button — navigate back to Svelte app ───────────────────
 document.getElementById("new-btn").addEventListener("click", () => {
-  // Navigate back to the Tauri frontend origin
-  // In dev: http://localhost:1420, in prod: tauri://localhost
-  const origin = window.__TAURI_INTERNALS__
-    ? "tauri://localhost"
-    : "http://localhost:1420";
+  const params = new URLSearchParams(window.location.search);
+  const origin = params.get("origin") || "http://localhost:1420";
   window.location.href = origin;
 });
 
