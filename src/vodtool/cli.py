@@ -14,23 +14,23 @@ except ImportError:
 from rich.console import Console
 
 from vodtool import __version__
-from vodtool.commands.chunks import create_chunks
+from vodtool.commands.chunks import create_chunks, get_last_error as get_chunks_error
 from vodtool.commands.cutplan import generate_cutplan
 from vodtool.commands.diarize import diarize_command
 from vodtool.commands.diarize_review import diarize_review_command
-from vodtool.commands.embed import embed_chunks
+from vodtool.commands.embed import embed_chunks, get_last_error as get_embed_error
 from vodtool.commands.explain_chunk import explain_chunk_command
 from vodtool.commands.export import export_video
-from vodtool.commands.ingest import ingest_video
+from vodtool.commands.ingest import get_last_error as get_ingest_error, ingest_video
 from vodtool.commands.inspect_topic import inspect_topic_command
 from vodtool.commands.label_topics import label_topics_command
 from vodtool.commands.list_topics import list_topics_command
-from vodtool.commands.llm_topics import llm_topics
+from vodtool.commands.llm_topics import get_last_error as get_llm_error, llm_topics
 from vodtool.commands.merge_topics import merge_topics_command
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.show_topics import show_topics_command
 from vodtool.commands.topics import cluster_topics
-from vodtool.commands.transcribe import transcribe_audio
+from vodtool.commands.transcribe import get_last_error as get_transcribe_error, transcribe_audio
 
 app = typer.Typer(
     name="vodtool",
@@ -325,31 +325,31 @@ def pipeline(
     progress(1, "Ingesting video...")
     project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
     if project_dir is None:
-        fail(1, "Ingest failed")
+        fail(1, get_ingest_error() or "Ingest failed")
 
     # Step 2: Transcribe
     progress(2, "Transcribing audio...")
     transcript_path = transcribe_audio(project_dir, whisper_model, False, language)
     if transcript_path is None:
-        fail(2, "Transcription failed")
+        fail(2, get_transcribe_error() or "Transcription failed")
 
     # Step 3: Chunks
     progress(3, "Creating semantic chunks...")
     chunks_path = create_chunks(project_dir)
     if chunks_path is None:
-        fail(3, "Chunking failed")
+        fail(3, get_chunks_error() or "Chunking failed")
 
     # Step 4: Embed
     progress(4, "Generating embeddings...")
     db_path = embed_chunks(project_dir)
     if db_path is None:
-        fail(4, "Embedding failed")
+        fail(4, get_embed_error() or "Embedding failed")
 
     # Step 5: LLM topic detection (replaces segment-topics + topics + label-topics)
     progress(5, "Detecting topics with LLM...")
     topic_map_path = llm_topics(project_dir, max_topics, provider, model)
     if topic_map_path is None:
-        fail(5, "LLM topic detection failed")
+        fail(5, get_llm_error() or "LLM topic detection failed")
 
     if json_progress:
         try:

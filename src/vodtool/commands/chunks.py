@@ -13,6 +13,13 @@ from vodtool.utils.validation import validate_project_path
 console = Console()
 logger = logging.getLogger("vodtool")
 
+_last_error: Optional[str] = None
+
+
+def get_last_error() -> Optional[str]:
+    """Return the last error message set by create_chunks."""
+    return _last_error
+
 
 def split_into_sentences(text: str) -> list[str]:
     """
@@ -271,9 +278,13 @@ def create_chunks(project_path: Path) -> Optional[Path]:
     Returns:
         Path to the chunks.json file, or None if chunking failed
     """
+    global _last_error
+    _last_error = None
+
     # Validate project directory
     error = validate_project_path(project_path)
     if error:
+        _last_error = error
         console.print(f"[red]Error: {error}[/red]")
         return None
 
@@ -282,6 +293,7 @@ def create_chunks(project_path: Path) -> Optional[Path]:
         # Check for transcript_raw.json
         transcript_path = project_path / "transcript_raw.json"
         if not transcript_path.exists():
+            _last_error = f"Transcript not found — run 'vodtool transcribe' first"
             console.print(f"[red]Error: Transcript not found: {transcript_path}[/red]")
             console.print("Run 'vodtool transcribe' first to create a transcript.")
             return None
@@ -290,10 +302,12 @@ def create_chunks(project_path: Path) -> Optional[Path]:
         console.print("[cyan]Loading transcript...[/cyan]")
         transcript_data = safe_read_json(transcript_path)
         if transcript_data is None:
+            _last_error = "Failed to read transcript file"
             return None
 
         segments = transcript_data.get("segments", [])
         if not segments:
+            _last_error = "No segments found in transcript"
             console.print("[yellow]Warning: No segments found in transcript[/yellow]")
             return None
 
