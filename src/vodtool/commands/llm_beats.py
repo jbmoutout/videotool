@@ -280,6 +280,7 @@ def detect_beats(
             response = client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=16384,
+                temperature=0.3,
                 messages=[{"role": "user", "content": prompt}],
                 timeout=LLM_TIMEOUT,
             )
