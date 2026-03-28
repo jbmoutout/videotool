@@ -12,6 +12,11 @@ const config = {
     adapter: adapter({
       fallback: "index.html",
     }),
+    files: {
+      appTemplate: "src-svelte/app.html",
+      routes: "src-svelte/routes",
+      lib: "src-svelte/lib",
+    },
   },
 };
 
