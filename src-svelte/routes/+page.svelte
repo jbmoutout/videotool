@@ -3,8 +3,7 @@
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
-  import { onMount, onDestroy } from "svelte";
-  import { fly } from "svelte/transition";
+  import { onDestroy } from "svelte";
 
   // ── types ────────────────────────────────────────────────────────────────────
 
@@ -45,26 +44,37 @@
   let topics = $state<Topic[]>([]);
   let projectDir = $state<string>("");
   let videoFileName = $state<string>("");
+  let processLog = $state<string[]>([]);
 
-  // ── animation state ───────────────────────────────────────────────────────────
+  // ── spinner ───────────────────────────────────────────────────────────────────
 
-  const TITLE = "VODTOOL";
-  let titleChars = $state("");
-  let taglineVisible = $state(false);
-
-  const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  const FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   let spinnerIdx = $state(0);
 
-  let displayMsg = $state("");
+  $effect(() => {
+    if (screen === "processing") {
+      const iv = setInterval(() => {
+        spinnerIdx = (spinnerIdx + 1) % FRAMES.length;
+      }, 80);
+      return () => clearInterval(iv);
+    }
+  });
+
+  // ── copy state ────────────────────────────────────────────────────────────────
+
   let copiedId = $state<string | null>(null);
 
-  // ── event listeners (cleaned up on destroy) ───────────────────────────────────
+  // ── event listeners ───────────────────────────────────────────────────────────
 
   let unlisteners: UnlistenFn[] = [];
 
   function registerListeners() {
     Promise.all([
       listen<ProgressMsg>("pipeline-progress", (e) => {
+        const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
+        if (processLog.at(-1) !== entry) {
+          processLog = [...processLog, entry];
+        }
         progress = e.payload;
       }),
       listen<DoneMsg>("pipeline-done", async (e) => {
@@ -94,53 +104,8 @@
 
   registerListeners();
 
-  // ── title typewriter (import screen, runs once on mount) ──────────────────────
-
-  onMount(() => {
-    let i = 0;
-    let taglineTimer: ReturnType<typeof setTimeout> | null = null;
-    const iv = setInterval(() => {
-      titleChars = TITLE.slice(0, ++i);
-      if (i === TITLE.length) {
-        clearInterval(iv);
-        taglineTimer = setTimeout(() => {
-          taglineVisible = true;
-        }, 300);
-      }
-    }, 50);
-    return () => {
-      clearInterval(iv);
-      if (taglineTimer) clearTimeout(taglineTimer);
-    };
-  });
-
   onDestroy(() => {
     unlisteners.forEach((fn) => fn());
-  });
-
-  // ── braille spinner (processing screen) ───────────────────────────────────────
-
-  $effect(() => {
-    if (screen === "processing") {
-      const iv = setInterval(() => {
-        spinnerIdx = (spinnerIdx + 1) % SPINNER_FRAMES.length;
-      }, 80);
-      return () => clearInterval(iv);
-    }
-  });
-
-  // ── step message typewriter ───────────────────────────────────────────────────
-
-  $effect(() => {
-    const target = progress?.msg ?? "";
-    let i = 0;
-    displayMsg = "";
-    if (!target) return;
-    const iv = setInterval(() => {
-      displayMsg = target.slice(0, ++i);
-      if (i === target.length) clearInterval(iv);
-    }, 20);
-    return () => clearInterval(iv);
   });
 
   // ── handlers ──────────────────────────────────────────────────────────────────
@@ -148,6 +113,7 @@
   async function startPipeline(videoPath: string) {
     errorMsg = null;
     progress = null;
+    processLog = [];
     videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
     try {
@@ -158,7 +124,6 @@
     }
   }
 
-  // Tauri native drag-drop — provides real filesystem paths.
   getCurrentWindow().onDragDropEvent((e) => {
     if (e.payload.type === "over") {
       dragOver = true;
@@ -183,6 +148,7 @@
     await invoke("cancel_pipeline");
     screen = "import";
     progress = null;
+    processLog = [];
   }
 
   function reset() {
@@ -191,355 +157,205 @@
     projectDir = "";
     videoFileName = "";
     progress = null;
+    processLog = [];
     errorMsg = null;
   }
 
   async function copyTimestamp(topic: Topic) {
     await navigator.clipboard.writeText(topic.duration_label);
     copiedId = topic.topic_id;
-    setTimeout(() => {
-      copiedId = null;
-    }, 1500);
+    setTimeout(() => { copiedId = null; }, 1500);
   }
 
-  // ── derived ───────────────────────────────────────────────────────────────────
-
   const progressPct = $derived(progress ? Math.round(progress.pct * 100) : 0);
-  const progressStep = $derived(progress ? `${progress.step}/${progress.total}` : "");
 </script>
 
-<!-- ── Import screen ──────────────────────────────────────────────────────────── -->
+<!-- ── Import ──────────────────────────────────────────────────────────────────── -->
 {#if screen === "import"}
-  <main class="screen import-screen">
-    <h1 class="logo-title">{titleChars}</h1>
-    <p class="tagline" class:visible={taglineVisible}>drop a stream. get topics.</p>
+  <main class="screen" class:drag-over={dragOver}>
+    <p class="title">VideoTool</p>
+    <p class="">Transcribe and segment your video by topic</p>
 
     {#if errorMsg}
-      <div class="error-banner">
-        <span aria-hidden="true" class="error-icon">✗</span>
-        {errorMsg}
-        <button class="dismiss" onclick={() => (errorMsg = null)}>×</button>
-      </div>
+      <p class="error-line">✗ {errorMsg} <button class="inline-btn" onclick={() => (errorMsg = null)}>dismiss</button></p>
     {/if}
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-      class="drop-zone"
-      class:drag-over={dragOver}
-      role="region"
-      aria-label="Video drop zone — drag a video file here or press Enter to browse"
-      tabindex="0"
-      onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") browseFile(); }}
-    >
-      <span class="drop-icon" aria-hidden="true">▶</span>
-      <p class="drop-label">Drop video here</p>
-      <p class="drop-sub">or</p>
-      <button class="file-btn" onclick={browseFile}>Browse file</button>
+    <div class="import-body">
+      <p class="hint">drop a video file here</p>
+      <p class="hint dim">or <button class="browse-btn" onclick={browseFile}>browse file</button></p>
     </div>
   </main>
 
-<!-- ── Processing screen ─────────────────────────────────────────────────────── -->
+<!-- ── Processing ─────────────────────────────────────────────────────────────── -->
 {:else if screen === "processing"}
-  <main class="screen processing-screen">
-    <h1 class="logo-title">VODTOOL</h1>
-    {#if videoFileName}
-      <p class="processing-file">processing: {videoFileName}</p>
-    {/if}
+  <main class="screen">
+    <p class="title">VideoTool</p>
+    <p class="dim">Analyzing: {videoFileName}</p>
 
-    <div class="progress-block">
-      <div class="spinner-line">
-        <span class="spinner">{SPINNER_FRAMES[spinnerIdx]}</span>
-        <span class="progress-msg">{displayMsg}</span>
-        <span class="progress-step">{progressStep}</span>
-      </div>
-      <div class="progress-bar-track">
-        <div class="progress-bar-fill" style="width: {progressPct}%"></div>
-      </div>
+    <div class="log">
+      {#if processLog.length === 0}
+        <p class="log-line">loading...</p>
+        <span class="spinner">{FRAMES[spinnerIdx]}</span>
+      {:else}
+        {#each processLog as line, i}
+          <p class="log-line" class:dim={i < processLog.length - 1}>{line}</p>
+        {/each}
+        <span class="spinner">{FRAMES[spinnerIdx]}</span>
+      {/if}
     </div>
 
-    <button class="cancel-btn" onclick={cancelPipeline}>Cancel</button>
+    <div class="progress-track">
+      <div class="progress-fill" style="width: {progressPct}%"></div>
+    </div>
+    <p class="dim pct">{progressPct}%</p>
+
+    <div><button class="inline-btn" onclick={cancelPipeline}>[cancel]</button></div>
   </main>
 
-<!-- ── Results screen ────────────────────────────────────────────────────────── -->
+<!-- ── Results ────────────────────────────────────────────────────────────────── -->
 {:else if screen === "results"}
-  <main class="screen results-screen">
-    <header class="results-header">
-      <h1 class="logo-title">VODTOOL</h1>
-      <button class="back-btn" onclick={reset}>← new video</button>
-    </header>
+  <main class="screen">
+    <p class="title">VideoTool</p>
+    <p class="dim">{videoFileName} · {topics.length} topics</p>
+    <div><button class="inline-btn" onclick={reset}>[new]</button></div>
+  
 
     {#if errorMsg}
-      <div class="error-banner">
-        <span aria-hidden="true" class="error-icon">✗</span>
-        {errorMsg}
-        <button class="dismiss" onclick={() => (errorMsg = null)}>×</button>
-      </div>
-    {:else}
-      <p class="results-meta">{videoFileName ? `${videoFileName} — ` : ""}{topics.length} topics found</p>
+      <p class="error-line">✗ {errorMsg} <button class="inline-btn" onclick={() => (errorMsg = null)}>dismiss</button></p>
     {/if}
 
     {#if topics.length === 0 && !errorMsg}
-      <div class="empty-state">
-        <p class="empty-msg">no topics found.</p>
-        <p class="empty-sub">try a different file or a longer recording.</p>
-      </div>
-    {:else if topics.length > 0}
-      <ul class="topic-list">
-        {#each topics as topic, i (topic.topic_id)}
-          <li class="topic-card" in:fly={{ y: 6, duration: 200, delay: i * 60 }}>
-            <div class="topic-top">
-              <span class="topic-num">{String(i + 1).padStart(2, "0")}</span>
-              <span class="topic-duration">{topic.duration_label}</span>
-              <button
-                class="copy-btn"
-                onclick={() => copyTimestamp(topic)}
-                aria-label="Copy timestamp for {topic.label}"
-              >{copiedId === topic.topic_id ? "copied!" : "copy ↗"}</button>
-            </div>
-            <p class="topic-label">{topic.label}</p>
-            <p class="topic-summary">{topic.summary}</p>
-          </li>
-        {/each}
-      </ul>
+      <p class="hint dim">no topics found. try a different file or a longer recording.</p>
+    {:else}
+      {#each topics as topic, i (topic.topic_id)}
+        <div class="topic">
+          <p class="topic-head">
+            <span class="topic-num">{String(i + 1).padStart(2, "0")}</span>
+            <span class="topic-dur dim">{topic.duration_label}</span>
+            <span class="topic-label">{topic.label}</span>
+            <button
+              class="inline-btn copy"
+              onclick={() => copyTimestamp(topic)}
+              aria-label="Copy timestamp for {topic.label}"
+            >{copiedId === topic.topic_id ? "copied!" : "copy ↗"}</button>
+          </p>
+          <p class="topic-summary dim">{topic.summary}</p>
+        </div>
+      {/each}
     {/if}
   </main>
 {/if}
 
 <style>
-  /* ── reset & base ─────────────────────────────────────────────────── */
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(body) {
     font-family: "Courier New", Courier, monospace;
-    background: #0a0a0a;
-    color: #e0e0e0;
-    min-height: 100vh;
+    font-size: 13px;
+    line-height: 1.6;
+    background: #0e0e0e;
+    color: #c9c9c9;
   }
 
   .screen {
+    padding: 1.5rem 2rem;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: 2rem 1.5rem;
+    gap: 0;
+  }
+  .screen.drag-over { background: #161616; }
+
+  /* ── header ──────────────────────────────────────────────────────── */
+  .title { color: #fff; margin-bottom: 0.4rem; display: flex; align-items: baseline; gap: 0; }
+  .sep { color: #444; }
+  .dim { color: #555; }
+  .rule { height: 1px; background: #1e1e1e; margin-bottom: 1.5rem; }
+
+  /* ── import ──────────────────────────────────────────────────────── */
+  .import-body { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .hint { color: #888; }
+
+  .cursor {
+    color: #888;
+    margin-top: 0.75rem;
+    animation: blink 1s step-end infinite;
+    display: inline-block;
   }
 
-  /* ── logo ─────────────────────────────────────────────────────────── */
-  .logo-title {
-    font-size: 2.4rem;
-    font-weight: 700;
-    letter-spacing: 0.25em;
-    color: #fff;
-    text-transform: uppercase;
+  .browse-btn {
+    font-family: inherit;
+    font-size: 13px;
+    color: #888;
+    background: none;
+    border: none;
+    border-bottom: 1px solid #444;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.1s, border-color 0.1s;
+  }
+  .browse-btn:hover { color: #c9c9c9; border-color: #888; }
+
+  /* ── processing ──────────────────────────────────────────────────── */
+  .log { margin-top: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.1rem; }
+  .log-line { color: #c9c9c9; }
+  .log-line.dim { color: #444; }
+  .spinner { color: #888; display: block; margin-top: 0.1rem; }
+
+  .progress-track {
+    width: 100%;
+    max-width: 320px;
+    height: 2px;
+    background: #1e1e1e;
     margin-bottom: 0.3rem;
   }
-  .logo-title::after {
-    content: "_";
-    animation: blink 1s step-end infinite;
-    color: #555;
-  }
-
-  /* ── import screen ───────────────────────────────────────────────── */
-  .import-screen { justify-content: center; gap: 1.2rem; }
-
-  .tagline {
-    font-size: 0.85rem;
-    letter-spacing: 0.15em;
-    color: #666;
-    text-transform: lowercase;
-    margin-bottom: 1.5rem;
-    opacity: 0;
-    transition: opacity 0.3s;
-  }
-  .tagline.visible { opacity: 1; }
-
-  .error-banner {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: #1a0a0a;
-    border: 1px solid #5a1a1a;
-    color: #e06060;
-    padding: 0.6rem 1rem;
-    font-size: 0.85rem;
-    max-width: 480px;
-    width: 100%;
-  }
-  .error-icon { color: #e06060; }
-  .dismiss {
-    margin-left: auto;
-    background: none;
-    border: none;
-    color: #e06060;
-    cursor: pointer;
-    font-size: 1rem;
-    line-height: 1;
-  }
-
-  .drop-zone {
-    border: 2px dashed #333;
-    padding: 3rem 2rem;
-    max-width: 480px;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.6rem;
-    cursor: default;
-    transition: border-color 0.15s, background 0.15s;
-    animation: breathe 3s ease-in-out infinite;
-    outline: none;
-  }
-  .drop-zone:focus-visible { box-shadow: 0 0 0 1px #666; }
-  .drop-zone.drag-over {
-    border-color: #e0e0e0;
-    background: #111;
-    animation: none;
-  }
-  .drop-icon { font-size: 2.5rem; color: #444; }
-  .drop-label { font-size: 1rem; color: #aaa; letter-spacing: 0.05em; }
-  .drop-sub { font-size: 0.75rem; color: #444; }
-
-  .file-btn {
-    display: inline-block;
-    border: 1px solid #444;
-    padding: 0.45rem 1.1rem;
-    font-family: inherit;
-    font-size: 0.85rem;
-    letter-spacing: 0.08em;
-    color: #ccc;
-    cursor: pointer;
-    background: none;
-    transition: border-color 0.15s, color 0.15s;
-  }
-  .file-btn:hover { border-color: #e0e0e0; color: #fff; }
-
-  /* ── processing screen ───────────────────────────────────────────── */
-  .processing-screen { justify-content: center; gap: 1.5rem; }
-
-  .processing-file {
-    font-size: 0.8rem;
-    color: #555;
-    letter-spacing: 0.08em;
-    margin-top: -0.8rem;
-  }
-
-  .progress-block {
-    max-width: 480px;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-  }
-
-  .spinner-line {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-    color: #888;
-    letter-spacing: 0.04em;
-    min-height: 1.2em;
-  }
-  .spinner { color: #aaa; }
-  .progress-msg { flex: 1; }
-  .progress-step { color: #555; font-size: 0.75rem; white-space: nowrap; }
-
-  .progress-bar-track {
-    width: 100%;
-    height: 4px;
-    background: #222;
-  }
-  .progress-bar-fill {
+  .progress-fill {
     height: 100%;
-    background: #e0e0e0;
+    background: #666;
     transition: width 0.3s ease;
   }
+  .pct { margin-bottom: 1rem; }
 
-  .cancel-btn {
-    font-family: inherit;
-    font-size: 0.8rem;
-    letter-spacing: 0.1em;
-    color: #555;
-    background: none;
-    border: 1px solid #333;
-    padding: 0.4rem 1rem;
-    cursor: pointer;
-    transition: color 0.15s, border-color 0.15s;
+  /* ── results ─────────────────────────────────────────────────────── */
+  .topic {
+    padding: 0.75rem 0;
+    border-bottom: 1px solid #1a1a1a;
   }
-  .cancel-btn:hover { color: #ccc; border-color: #666; }
-
-  /* ── results screen ──────────────────────────────────────────────── */
-  .results-screen { align-items: stretch; max-width: 640px; margin: 0 auto; gap: 1rem; }
-
-  .results-header {
+  .topic-head {
     display: flex;
     align-items: baseline;
-    justify-content: space-between;
-  }
-  .back-btn {
-    font-family: inherit;
-    font-size: 0.8rem;
-    color: #555;
-    background: none;
-    border: none;
-    cursor: pointer;
-    letter-spacing: 0.05em;
-    transition: color 0.15s;
-  }
-  .back-btn:hover { color: #ccc; }
-
-  .results-meta { font-size: 0.8rem; color: #444; letter-spacing: 0.08em; }
-
-  .empty-state {
-    padding: 2rem 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-  }
-  .empty-msg { font-size: 0.9rem; color: #666; }
-  .empty-sub { font-size: 0.8rem; color: #444; }
-
-  .topic-list { list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }
-
-  .topic-card {
-    border: 1px solid #222;
-    padding: 0.9rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    transition: border-color 0.15s;
-  }
-  .topic-card:hover { border-color: #444; }
-
-  .topic-top {
-    display: flex;
-    align-items: center;
     gap: 0.75rem;
+    margin-bottom: 0.15rem;
   }
-  .topic-num { font-size: 0.7rem; color: #444; letter-spacing: 0.1em; }
-  .topic-duration { font-size: 0.75rem; color: #555; flex: 1; }
-  .copy-btn {
+  .topic-num { color: #444; min-width: 2ch; }
+  .topic-dur { min-width: 10ch; }
+  .topic-label { color: #e0e0e0; flex: 1; }
+  .topic-summary { padding-left: calc(2ch + 0.75rem + 10ch + 0.75rem); color: #555; font-size: 12px; }
+
+  /* ── shared ──────────────────────────────────────────────────────── */
+  .inline-btn {
     font-family: inherit;
-    font-size: 0.75rem;
+    font-size: 12px;
     color: #555;
     background: none;
     border: none;
     cursor: pointer;
-    letter-spacing: 0.05em;
     padding: 0;
-    transition: color 0.15s;
+    transition: color 0.1s;
   }
-  .copy-btn:hover { color: #ccc; }
-  .topic-label { font-size: 1rem; color: #e0e0e0; font-weight: 600; }
-  .topic-summary { font-size: 0.82rem; color: #888; line-height: 1.4; }
+  .inline-btn:hover { color: #c9c9c9; }
+  .inline-btn.right { margin-left: auto; }
+  .inline-btn.copy { white-space: nowrap; }
 
-  /* ── animations ──────────────────────────────────────────────────── */
+  .error-line {
+    color: #c05050;
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+  }
+
   @keyframes blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0; }
-  }
-  @keyframes breathe {
-    0%, 100% { border-color: #222; }
-    50% { border-color: #444; }
   }
 </style>
