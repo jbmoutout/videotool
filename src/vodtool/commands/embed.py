@@ -17,6 +17,13 @@ from vodtool.utils.validation import validate_project_path
 console = Console()
 logger = logging.getLogger("vodtool")
 
+_last_error: Optional[str] = None
+
+
+def get_last_error() -> Optional[str]:
+    """Return the last error message set by embed_chunks."""
+    return _last_error
+
 
 def serialize_vector(vector: list[float]) -> bytes:
     return np.array(vector, dtype=np.float32).tobytes()
@@ -84,17 +91,23 @@ def embed_chunks(
     Returns:
         Path to embeddings.sqlite, or None on failure
     """
+    global _last_error
+    _last_error = None
+
     error = validate_project_path(project_path)
     if error:
+        _last_error = error
         console.print(f"[red]Error: {error}[/red]")
         return None
 
     chunks_path = require_file(project_path, "chunks.json", stage_name="chunks")
     if chunks_path is None:
+        _last_error = "chunks.json not found — run 'vodtool chunks' first"
         return None
 
     chunks = safe_read_json(chunks_path)
     if not chunks:
+        _last_error = "No chunks found in chunks.json"
         console.print("[yellow]Warning: No chunks found[/yellow]")
         return None
 
@@ -103,6 +116,7 @@ def embed_chunks(
     try:
         embedding_provider: EmbeddingProvider = get_embedding_provider(provider, model_name)
     except (ValueError, ImportError) as e:
+        _last_error = str(e)
         console.print(f"[red]Error: {e}[/red]")
         return None
 
@@ -112,6 +126,7 @@ def embed_chunks(
     try:
         conn = init_embeddings_db(db_path, effective_model)
     except Exception as e:
+        _last_error = f"Error initializing embeddings database: {e}"
         console.print(f"[red]Error initializing database: {e}[/red]")
         return None
 
@@ -133,6 +148,7 @@ def embed_chunks(
         vectors = embedding_provider.embed(texts)
         logger.info(f"Generated {len(vectors)} embeddings")
     except Exception as e:
+        _last_error = f"Error generating embeddings: {e}"
         console.print(f"[red]Error generating embeddings: {e}[/red]")
         conn.close()
         return None
