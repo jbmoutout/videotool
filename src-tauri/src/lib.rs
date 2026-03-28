@@ -61,10 +61,23 @@ pub struct TopicEntry {
 async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String> {
     let cli_path = resolve_cli_path(&app)?;
 
+    // Augment PATH so the subprocess can find ffmpeg/ffprobe regardless of
+    // how the app was launched (GUI apps on macOS don't inherit shell PATH).
+    let path_env = std::env::var("PATH").unwrap_or_default();
+    let augmented_path = format!(
+        "{}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        path_env
+    );
+
+    eprintln!("[vodtool-app] cli_path = {:?}", cli_path);
+    eprintln!("[vodtool-app] video_path = {:?}", video_path);
+    eprintln!("[vodtool-app] PATH = {}", augmented_path);
+
     let mut child = Command::new(&cli_path)
         .args(["pipeline", &video_path, "--json-progress"])
+        .env("PATH", augmented_path)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("Failed to spawn vodtool: {e}"))?;
@@ -241,6 +254,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState { child: child_handle })
         .on_window_event(move |_window, event| {
             // Kill subprocess when user closes the app — prevents orphaned process (TODO #9).
