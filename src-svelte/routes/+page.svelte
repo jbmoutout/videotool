@@ -58,42 +58,33 @@
 
   let targetPct = $state(0);
   let displayPct = $state(0);
-  let hasDownloadPct = $state(false); // true when download_pct events are flowing
+  let lastStep = $state(0);
 
   $effect(() => {
     if (screen === "processing") {
       const iv = setInterval(() => {
         if (displayPct < targetPct) {
-          // Catch up to the real target
           displayPct = Math.min(displayPct + 2, targetPct);
-        } else if (!hasDownloadPct && displayPct < 99) {
-          // Slow crawl only when there's no real-time progress source
-          // (steps 2 and 3 have no sub-events, so crawl is useful there)
-          const currentStep = progress?.step ?? 0;
+        } else if (displayPct < 99) {
+          // Slow crawl between real events (steps 2 & 3 have no sub-events)
+          const step = progress?.step ?? 0;
           const total = progress?.total ?? 3;
-          const stepEnd = Math.round((currentStep / total) * 100);
-          const cap = Math.min(stepEnd + Math.round((1 / total) * 100) - 2, 99);
+          const cap = Math.min(Math.round(((step + 1) / total) * 100) - 2, 99);
           if (displayPct < cap) {
-            displayPct = Math.min(displayPct + 0.5, cap);
+            displayPct = Math.min(displayPct + 0.3, cap);
           }
         }
-      }, 200);
+      }, 300);
       return () => clearInterval(iv);
     } else {
       displayPct = 0;
       targetPct = 0;
-      hasDownloadPct = false;
     }
   });
 
   // ── rotating wait messages ────────────────────────────────────────────────────
 
   const WAIT_MSGS: Record<number, string[]> = {
-    1: [
-      "downloading your vod...",
-      "extracting audio track...",
-      "ffmpeg doing its thing...",
-    ],
     2: [
       "converting speech to text...",
       "whisper is listening...",
@@ -115,16 +106,16 @@
 
   $effect(() => {
     if (screen === "processing") {
+      // Only rotate messages for steps 2 and 3 (step 1 gets real-time messages)
       const iv = setInterval(() => {
         const step = progress?.step ?? 1;
-        const msgs = WAIT_MSGS[step] ?? WAIT_MSGS[1];
-        waitMsgIdx = (waitMsgIdx + 1) % msgs.length;
-        currentWaitMsg = msgs[waitMsgIdx];
+        if (step >= 2 && WAIT_MSGS[step]) {
+          const msgs = WAIT_MSGS[step];
+          waitMsgIdx = (waitMsgIdx + 1) % msgs.length;
+          currentWaitMsg = msgs[waitMsgIdx];
+        }
       }, 4000);
-      // Set initial message
-      const step = progress?.step ?? 1;
-      const msgs = WAIT_MSGS[step] ?? WAIT_MSGS[1];
-      currentWaitMsg = msgs[0];
+      currentWaitMsg = "starting...";
       return () => clearInterval(iv);
     }
   });
@@ -136,35 +127,32 @@
   function registerListeners() {
     Promise.all([
       listen<ProgressMsg>("pipeline-progress", (e) => {
-        // Download sub-events: real-time download progress
+        progress = e.payload;
+
+        // Download sub-events: real-time download %
         if (e.payload.download_pct != null) {
-          hasDownloadPct = true;
-          progress = e.payload;
           const total = e.payload.total;
           targetPct = Math.round((e.payload.download_pct / 100) * (1 / total) * 100);
           currentWaitMsg = `downloading: ${e.payload.download_pct}%`;
           return;
         }
 
-        // Regular step event — always update log
-        const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
-        if (processLog.at(-1) !== entry) {
-          processLog = [...processLog, entry];
+        // Step changed — update log, progress bar, wait message
+        if (e.payload.step !== lastStep) {
+          lastStep = e.payload.step;
+          const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
+          if (processLog.at(-1) !== entry) {
+            processLog = [...processLog, entry];
+          }
+          targetPct = Math.round(e.payload.pct * 100);
+          waitMsgIdx = 0;
+          if (WAIT_MSGS[e.payload.step]) {
+            currentWaitMsg = WAIT_MSGS[e.payload.step][0];
+          }
+        } else {
+          // Same step, sub-status update (e.g. "extracting audio...")
+          currentWaitMsg = e.payload.msg;
         }
-        progress = e.payload;
-
-        // Step 1 without download_pct: skip targetPct update if download
-        // is active (download_pct events are driving the bar)
-        if (e.payload.step === 1 && hasDownloadPct) {
-          return;
-        }
-
-        // Any step > 1, or step 1 with no download: update normally
-        hasDownloadPct = false;
-        targetPct = Math.round(e.payload.pct * 100);
-        waitMsgIdx = 0;
-        const msgs = WAIT_MSGS[e.payload.step] ?? WAIT_MSGS[1];
-        currentWaitMsg = msgs[0];
       }),
       listen<DoneMsg>("pipeline-done", async (e) => {
         targetPct = 100;
@@ -207,7 +195,7 @@
     processLog = [];
     targetPct = 0;
     displayPct = 0;
-    hasDownloadPct = false;
+    lastStep = 0;
     waitMsgIdx = 0;
     videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
