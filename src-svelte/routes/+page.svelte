@@ -63,13 +63,15 @@
         if (displayPct < targetPct) {
           // Catch up to the real target quickly
           displayPct = Math.min(displayPct + 2, targetPct);
-        } else {
+        } else if (displayPct < 99) {
           // Slow crawl past the target (shows activity)
-          // Cap at next_step boundary - 2%
+          // Cap at next step boundary - 2%, never exceed 99%
           const currentStep = progress?.step ?? 0;
           const total = progress?.total ?? 3;
-          const nextStepPct = Math.round(((currentStep + 1) / total) * 100);
-          const cap = nextStepPct - 2;
+          const cap = Math.min(
+            Math.round(((currentStep + 1) / total) * 100) - 2,
+            99,
+          );
           if (displayPct < cap) {
             displayPct = Math.min(displayPct + 0.5, cap);
           }
@@ -234,7 +236,7 @@
 {#if screen === "import"}
   <main class="screen" class:drag-over={dragOver}>
     <p class="title">VideoTool</p>
-    <p class="">Narrative beat detection for stream VODs</p>
+    <p class="">Paste a VOD link and VideoTool will map out your stream in minutes</p>
 
     {#if errorMsg}
       <p class="error-line">✗ {errorMsg} <button class="inline-btn" onclick={() => (errorMsg = null)}>dismiss</button></p>
