@@ -205,10 +205,12 @@ def _process_chunks_locked(project_path: Path, segments: list[dict]) -> Optional
     try:
         chunks = create_semantic_chunks(segments)
     except Exception as e:
+        _last_error = f"Error creating chunks: {e}"
         console.print(f"[red]Error creating chunks: {e}[/red]")
         return None
 
     if not chunks:
+        _last_error = "No chunks created from transcript"
         console.print("[yellow]Warning: No chunks created[/yellow]")
         return None
 
@@ -249,6 +251,7 @@ def _process_chunks_locked(project_path: Path, segments: list[dict]) -> Optional
     console.print("[cyan]Saving chunks...[/cyan]")
 
     if not safe_write_json(chunks_path, chunks):
+        _last_error = "Failed to write chunks.json"
         return None
 
     logger.info(f"Saved chunks.json: {chunks_path}")
