@@ -324,9 +324,27 @@ def _run_ingest_and_transcribe(
             sys.stdout.flush()
         raise typer.Exit(code=1)
 
-    # Step 1: Ingest
+    # Step 1: Ingest (with download progress for Twitch URLs)
     progress(1, "Ingesting video...")
-    project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
+
+    def _download_progress(pct: float):
+        if json_progress:
+            sys.stdout.write(
+                _json.dumps({
+                    "step": 1,
+                    "total": total_steps,
+                    "pct": round(pct / total_steps, 3),
+                    "msg": f"Downloading: {int(pct * 100)}%",
+                    "download_pct": round(pct * 100),
+                })
+                + "\n"
+            )
+            sys.stdout.flush()
+
+    project_dir = ingest_video(
+        input_video_path, ffmpeg_path, quality=quality,
+        download_progress_callback=_download_progress if json_progress else None,
+    )
     if project_dir is None:
         fail(1, get_ingest_error() or "Ingest failed")
 

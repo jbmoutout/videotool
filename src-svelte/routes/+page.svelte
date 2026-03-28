@@ -14,6 +14,7 @@
     total: number;
     pct: number;
     msg: string;
+    download_pct?: number;
   }
 
   interface DoneMsg {
@@ -37,6 +38,7 @@
   let videoFileName = $state<string>("");
   let processLog = $state<string[]>([]);
   let urlInput = $state("");
+  const quality = "worst";
 
   // ── spinner ───────────────────────────────────────────────────────────────────
 
@@ -134,6 +136,15 @@
   function registerListeners() {
     Promise.all([
       listen<ProgressMsg>("pipeline-progress", (e) => {
+        // For download sub-events, update progress without adding log lines
+        if (e.payload.download_pct != null) {
+          progress = e.payload;
+          // Map download % into step 1's slice of the global bar
+          const total = e.payload.total;
+          targetPct = Math.round((e.payload.download_pct / 100) * (1 / total) * 100);
+          return;
+        }
+
         const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
         if (processLog.at(-1) !== entry) {
           processLog = [...processLog, entry];
@@ -190,7 +201,7 @@
     videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
     try {
-      await invoke("start_pipeline", { videoPath });
+      await invoke("start_pipeline", { videoPath, quality });
     } catch (err) {
       errorMsg = String(err);
       screen = "import";
@@ -236,7 +247,7 @@
 {#if screen === "import"}
   <main class="screen" class:drag-over={dragOver}>
     <p class="title">VideoTool</p>
-    <p class="">Paste a VOD link and VideoTool will map out your stream in minutes</p>
+    <p class="">Paste a VOD link or add a video file. Let VideoTool map out your stream in minutes</p>
 
     {#if errorMsg}
       <p class="error-line">✗ {errorMsg} <button class="inline-btn" onclick={() => (errorMsg = null)}>dismiss</button></p>
@@ -289,7 +300,7 @@
 <style>
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(body) {
-    font-family: "Courier New", Courier, monospace;
+    font-family: Monaco, "Cascadia Code", "Fira Code", "Courier New", monospace;
     font-size: 13px;
     line-height: 1.6;
     background: #0e0e0e;
