@@ -89,8 +89,7 @@ def download_vod_with_progress(
     proc = subprocess.Popen(
         ["streamlink", url, quality, "--output", str(output_path)],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        text=True,
+        stderr=subprocess.DEVNULL,
     )
 
     # Estimate expected file size from quality:
