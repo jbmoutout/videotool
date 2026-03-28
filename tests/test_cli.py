@@ -181,29 +181,32 @@ class TestPipelineJsonProgress:
              mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe, \
              mock.patch("vodtool.cli.create_chunks") as mock_chunks, \
              mock.patch("vodtool.cli.embed_chunks") as mock_embed, \
-             mock.patch("vodtool.cli.segment_topics") as mock_segment, \
-             mock.patch("vodtool.cli.cluster_topics") as mock_cluster, \
-             mock.patch("vodtool.cli.label_topics_command") as mock_label:
+             mock.patch("vodtool.cli.llm_topics") as mock_llm:
             project = tmp_path / "project"
+            project.mkdir()
+            topic_file = project / "topic_map_llm.json"
+            topic_file.write_text('[{"topic_id":"t1"}]')
             mock_ingest.return_value = project
             mock_transcribe.return_value = project / "transcript_raw.json"
             mock_chunks.return_value = project / "chunks.json"
             mock_embed.return_value = project / "embeddings.sqlite"
-            mock_segment.return_value = project / "segments.json"
-            mock_cluster.return_value = project / "topic_map.json"
-            mock_label.return_value = project / "topic_map_labeled.json"
+            mock_llm.return_value = topic_file
 
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
 
         assert result.exit_code == 0
         lines = [l for l in result.output.strip().splitlines() if l.strip()]
         parsed = [json.loads(l) for l in lines]
-        assert len(parsed) == 7
-        for i, obj in enumerate(parsed, start=1):
+        # 5 progress lines + 1 done line = 6
+        progress_lines = [p for p in parsed if "step" in p and "error" not in p]
+        done_lines = [p for p in parsed if p.get("done")]
+        assert len(progress_lines) == 5
+        for i, obj in enumerate(progress_lines, start=1):
             assert obj["step"] == i
-            assert obj["total"] == 7
+            assert obj["total"] == 5
             assert "pct" in obj
             assert "msg" in obj
+        assert len(done_lines) == 1
 
     def test_json_progress_step_failure_emits_error(self, tmp_path):
         """When a step fails with --json-progress, stdout contains an error object."""
@@ -231,17 +234,16 @@ class TestPipelineJsonProgress:
              mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe, \
              mock.patch("vodtool.cli.create_chunks") as mock_chunks, \
              mock.patch("vodtool.cli.embed_chunks") as mock_embed, \
-             mock.patch("vodtool.cli.segment_topics") as mock_segment, \
-             mock.patch("vodtool.cli.cluster_topics") as mock_cluster, \
-             mock.patch("vodtool.cli.label_topics_command") as mock_label:
+             mock.patch("vodtool.cli.llm_topics") as mock_llm:
             project = tmp_path / "project"
+            project.mkdir()
+            topic_file = project / "topic_map_llm.json"
+            topic_file.write_text('[{"topic_id":"t1"}]')
             mock_ingest.return_value = project
             mock_transcribe.return_value = project / "transcript_raw.json"
             mock_chunks.return_value = project / "chunks.json"
             mock_embed.return_value = project / "embeddings.sqlite"
-            mock_segment.return_value = project / "segments.json"
-            mock_cluster.return_value = project / "topic_map.json"
-            mock_label.return_value = project / "topic_map_labeled.json"
+            mock_llm.return_value = topic_file
 
             result = runner.invoke(app, ["pipeline", str(tmp_path / "video.mp4")])
 
