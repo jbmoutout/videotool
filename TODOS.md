@@ -4,7 +4,7 @@ Generated from /plan-eng-review on 2026-03-26
 
 ---
 
-## 1. Harden Python CLI Before Tauri Wrapper + Branch Cleanup
+## ~~1. Harden Python CLI Before Tauri Wrapper + Branch Cleanup~~ ✅ DONE (2026-03-29)
 
 **What:** Audit and refactor the existing Python CLI to fix brittle branch logic, add error handling, extract DRY violations, and reorganize git branches (merge useful ones, delete dead branches).
 
@@ -37,6 +37,8 @@ Generated from /plan-eng-review on 2026-03-26
 **Depends on:** None (blocking work for Tauri wrapper)
 
 **Effort:** human ~3-5 days / CC+gstack ~1-2 days
+
+**Completed:** 2026-03-29. Fixed `_last_error` gaps in 4 pipeline commands, replaced 11 manual project path validations with `validate_project_path()`, replaced 13 raw `json.load()` with `safe_read_json()`, added subprocess timeouts to twitch.py, wrote 50 new tests (124 → 174, all passing). Git branches already clean (only main + feat/beat-detection).
 
 ---
 
@@ -73,7 +75,7 @@ Generated from /plan-eng-review on 2026-03-26
 
 ---
 
-## 3. Add Visual Timeline with Video Preview (YouTube Chapters Style)
+## ~~3. Add Visual Timeline with Video Preview (YouTube Chapters Style)~~ ✅ DONE (2026-03-29)
 
 **What:** Build a visual timeline component (like YouTube chapters) with:
 - Horizontal bar representing full video duration
@@ -136,9 +138,11 @@ Generated from /plan-eng-review on 2026-03-26
 
 ---
 
-## 5. Expand Test Coverage to 100% (47 Total Tests)
+## 5. Expand Test Coverage to 100% (47 Total Tests) — PARTIALLY DONE
 
 **What:** Add 30 more tests to reach 100% coverage (currently 17 critical tests = 75% coverage). Cover all edge cases, minor error paths, and platform-specific behaviors.
+
+**Progress (2026-03-29):** 50 new tests added in TODO #1 hardening (124 → 174 total). Covers ingest, transcribe, twitch, and llm_beats error paths. Remaining gaps: diarize, export end-to-end, frontend tests, E2E pipeline.
 
 **Why:** MVP ships with 17 critical tests (15 baseline + 2 promoted from failure modes analysis) to balance speed vs quality. But the Completeness Principle says: with AI-assisted coding, the marginal cost of full coverage is near-zero. The delta between 17 tests and 47 tests is ~2 hours with CC+gstack — not worth skipping.
 
@@ -268,7 +272,7 @@ When implementing: `AssemblyAITranscriptionProvider` slots into the existing `Tr
 
 ---
 
-## 9. Subprocess Orphan Prevention on App Close (P1)
+## ~~9. Subprocess Orphan Prevention on App Close (P1)~~ ✅ DONE (2026-03-29)
 
 **What:** Hook `WindowEvent::CloseRequested` in the Tauri app to send SIGTERM to the running Python subprocess before the window closes. Without this, closing the app mid-processing leaves a zombie vodtool process running in the background.
 
