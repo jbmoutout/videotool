@@ -1,12 +1,13 @@
 """List topics command for vodtool - display topics with labels and summaries."""
 
-import json
 import logging
 from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
 from rich.table import Table
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -62,12 +63,9 @@ def list_topics_command(
         List of topics, or None if failed
     """
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Map source to filename(s)
@@ -101,11 +99,8 @@ def list_topics_command(
         return None
 
     # Load topic map
-    try:
-        with topic_map_path.open(encoding="utf-8") as f:
-            topics = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading topic map: {e}[/red]")
+    topics = safe_read_json(topic_map_path)
+    if topics is None:
         return None
 
     if not topics:

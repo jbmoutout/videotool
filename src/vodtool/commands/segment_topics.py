@@ -9,6 +9,7 @@ from typing import Optional
 import numpy as np
 from rich.console import Console
 from sklearn.metrics.pairwise import cosine_similarity
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -240,12 +241,9 @@ def segment_topics(project_path: Path, max_topics: int = 8) -> Optional[Path]:
         Path to the topic_segments.json file, or None if segmentation failed
     """
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Check for embeddings database

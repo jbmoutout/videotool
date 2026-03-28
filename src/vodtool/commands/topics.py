@@ -8,6 +8,9 @@ from typing import Optional
 
 import numpy as np
 from rich.console import Console
+
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.validation import validate_project_path
 from sklearn.cluster import AgglomerativeClustering
 
 console = Console()
@@ -184,12 +187,9 @@ def cluster_topics(project_path: Path, max_topics: int = 8) -> Optional[Path]:
         Path to the topic_map.json file, or None if clustering failed
     """
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Check for topic_segments.json
@@ -208,11 +208,8 @@ def cluster_topics(project_path: Path, max_topics: int = 8) -> Optional[Path]:
     # Load segments
     console.print("[cyan]Loading topic segments...[/cyan]")
 
-    try:
-        with segments_path.open(encoding="utf-8") as f:
-            segments = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading segments: {e}[/red]")
+    segments = safe_read_json(segments_path)
+    if segments is None:
         return None
 
     if not segments:
