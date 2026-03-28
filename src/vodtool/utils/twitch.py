@@ -195,8 +195,11 @@ def download_chat(video_id: str, output_path: Path) -> bool:
 
         try:
             comments_data = data[0]["data"]["video"]["comments"]
+            if comments_data is None:
+                logger.warning("No chat data available for this VOD")
+                break
             edges = comments_data.get("edges", [])
-        except (KeyError, IndexError, TypeError):
+        except (KeyError, IndexError, TypeError, AttributeError):
             logger.error("Unexpected chat API response shape")
             return False
 
