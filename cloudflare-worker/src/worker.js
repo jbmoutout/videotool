@@ -9,6 +9,8 @@
  * Secrets: wrangler secret put GROQ_API_KEY && wrangler secret put ANTHROPIC_API_KEY
  */
 
+// NOTE: CORS is permissive by design — this is a public API proxy for VodTool
+// desktop/web clients. Rate limiting (RATE_LIMIT_PER_DAY) is the primary abuse control.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -37,19 +39,11 @@ export default {
         return jsonResponse({ error: "Daily limit reached. Try again tomorrow." }, 429);
       }
 
-      // Only count transcription requests (the expensive ones)
-      if (path.startsWith("/groq/")) {
+      // Count both Groq (transcription) and Anthropic (beat detection) requests
+      if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
         await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 86400 });
       }
     }
-
-    // Analytics: log request (lightweight, non-blocking)
-    const analyticsData = {
-      ts: new Date().toISOString(),
-      path: path.split("/").slice(0, 3).join("/"),  // e.g., /groq/openai or /anthropic/v1
-      ip_hash: await hashIP(request.headers.get("cf-connecting-ip") || "unknown"),
-      country: request.headers.get("cf-ipcountry") || "unknown",
-    };
 
     // ── Groq proxy ─────────────────────────────────────────────────
     if (path.startsWith("/groq/")) {
@@ -120,10 +114,3 @@ function addCorsHeaders(response) {
   return newResponse;
 }
 
-async function hashIP(ip) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(ip + "-vodtool-salt");
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  const bytes = new Uint8Array(hash);
-  return Array.from(bytes.slice(0, 8)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
