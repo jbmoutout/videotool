@@ -33,24 +33,53 @@ def get_last_error() -> Optional[str]:
     return _last_error
 
 
-def _build_beat_prompt(segments: list[dict]) -> str:
-    """Build the narrative beat detection prompt from transcript segments."""
-    # Format segments with timestamps
+def _format_transcript(segments: list[dict]) -> str:
+    """
+    Format transcript segments into natural paragraphs with periodic timestamps.
+
+    Instead of one line per segment (which produces fragmented LLM output),
+    concatenate text into flowing paragraphs with a timestamp marker every ~30s.
+    This encourages the LLM to think in broad narrative arcs, not tiny fragments.
+    """
+    if not segments:
+        return ""
+
     lines = []
+    current_text_parts = []
+    last_marker_time = -30.0  # force first marker
+
     for seg in segments:
         start = seg["start"]
-        end = seg["end"]
         text = seg["text"].strip()
-        if text:
-            lines.append(f"[{start:.1f}-{end:.1f}] {text}")
+        if not text:
+            continue
 
-    transcript_text = "\n".join(lines)
+        # Insert a timestamp marker every ~30 seconds
+        if start - last_marker_time >= 30.0:
+            # Flush accumulated text
+            if current_text_parts:
+                lines.append(" ".join(current_text_parts))
+                current_text_parts = []
+            lines.append(f"\n[{start:.0f}s]")
+            last_marker_time = start
+
+        current_text_parts.append(text)
+
+    # Flush remaining text
+    if current_text_parts:
+        lines.append(" ".join(current_text_parts))
+
+    return "\n".join(lines)
+
+
+def _build_beat_prompt(segments: list[dict]) -> str:
+    """Build the narrative beat detection prompt from transcript segments."""
+    transcript_text = _format_transcript(segments)
 
     return f"""You are a video editor's assistant analyzing a stream transcript.
 
-TASK: Identify the distinct TOPICS discussed, then for each topic identify
-the NARRATIVE BEATS — the structural moments that define how a YouTube video
-should be cut from this material.
+For each topic below, identify the NARRATIVE BEATS — the structural
+moments that define how a YouTube video should be cut from this material.
 
 BEAT TYPES:
 - HOOK: The most attention-grabbing moment. A provocative statement,
@@ -71,8 +100,11 @@ RULES:
 - The hook is NOT always at the beginning. Often the most interesting
   moment is in the middle.
 - Beats can overlap (a hook can also be the start of a peak).
+- IMPORTANT: Beats should cover BROAD narrative spans, not tiny fragments.
+  A peak can span 5-10 minutes of discussion. Don't break a continuous
+  argument into many small beats — group the whole argument as one peak.
 - Return timestamps as seconds from stream start (matching the
-  transcript timestamps).
+  [Ns] markers in the transcript).
 - Include a confidence score (0.0-1.0) for each beat.
 - Include a short label describing what happens in each beat.
 - Generate labels in the same language as the transcript.
