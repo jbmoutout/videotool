@@ -77,7 +77,9 @@ RULES:
 - Return timestamps as seconds from stream start.
 - Include a confidence score (0.0-1.0) for each beat.
 - Include a short label describing what happens in each beat.
-- Generate labels in the same language as the transcript.
+- Generate topic_label as a short punchy title (3-6 words) using the
+  host's own slang, expressions, and vocabulary from the transcript.
+- Generate all labels and topic titles in the same language as the transcript.
 
 OUTPUT FORMAT: Return ONLY valid JSON matching this schema:
 {{
