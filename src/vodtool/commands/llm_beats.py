@@ -35,40 +35,16 @@ def get_last_error() -> Optional[str]:
 
 def _format_transcript(segments: list[dict]) -> str:
     """
-    Format transcript segments into natural paragraphs with periodic timestamps.
+    Format transcript segments with per-segment timestamps.
 
-    Instead of one line per segment (which produces fragmented LLM output),
-    concatenate text into flowing paragraphs with a timestamp marker every ~30s.
-    This encourages the LLM to think in broad narrative arcs, not tiny fragments.
+    Each segment gets its own line with [start-end] timestamps.
+    This matches the format that produced the best results in manual testing.
     """
-    if not segments:
-        return ""
-
     lines = []
-    current_text_parts = []
-    last_marker_time = -30.0  # force first marker
-
     for seg in segments:
-        start = seg["start"]
         text = seg["text"].strip()
-        if not text:
-            continue
-
-        # Insert a timestamp marker every ~30 seconds
-        if start - last_marker_time >= 30.0:
-            # Flush accumulated text
-            if current_text_parts:
-                lines.append(" ".join(current_text_parts))
-                current_text_parts = []
-            lines.append(f"\n[{start:.0f}s]")
-            last_marker_time = start
-
-        current_text_parts.append(text)
-
-    # Flush remaining text
-    if current_text_parts:
-        lines.append(" ".join(current_text_parts))
-
+        if text:
+            lines.append(f"[{seg['start']:.1f}-{seg['end']:.1f}] {text}")
     return "\n".join(lines)
 
 
