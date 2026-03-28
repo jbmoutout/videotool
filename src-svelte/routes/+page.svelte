@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -63,12 +62,12 @@
 
   let beatTopics = $state<BeatTopic[]>([]);
   let videoSrc = $state<string>("");
+  let rawVideoPath = $state<string>("");
   let videoDuration = $state(0);
+  let videoFailed = $state(false);
   let hoverInfo = $state("");
   let playerRef = $state<HTMLVideoElement | null>(null);
   let timelineRef = $state<HTMLDivElement | null>(null);
-  let playheadX = $state(0);
-  const LABEL_W = 40;
 
   // ── spinner ───────────────────────────────────────────────────────────────────
 
@@ -86,13 +85,14 @@
 
   // ── playhead sync ─────────────────────────────────────────────────────────────
 
+  let currentTime = $state(0);
+
   $effect(() => {
-    if (screen === "results" && playerRef && timelineRef && videoDuration > 0) {
+    if (screen === "results" && playerRef && videoDuration > 0) {
       let animId: number;
       const update = () => {
-        if (playerRef && timelineRef && videoDuration > 0) {
-          const w = timelineRef.clientWidth;
-          playheadX = LABEL_W + ((playerRef.currentTime / videoDuration) * (w - LABEL_W));
+        if (playerRef) {
+          currentTime = playerRef.currentTime;
         }
         animId = requestAnimationFrame(update);
       };
@@ -120,11 +120,13 @@
             projectDir: e.payload.project_dir,
           });
           beatTopics = resp.beats;
-          if (resp.video_path) {
-            videoSrc = convertFileSrc(resp.video_path);
-          }
           if (resp.duration_seconds) {
             videoDuration = resp.duration_seconds;
+          }
+          if (resp.video_path) {
+            rawVideoPath = resp.video_path;
+            // Try asset protocol first, fall back to file:// in onerror
+            videoSrc = convertFileSrc(resp.video_path);
           }
         } catch (err) {
           beatTopics = [];
@@ -208,7 +210,10 @@
     screen = "import";
     beatTopics = [];
     videoSrc = "";
+    rawVideoPath = "";
+    videoFailed = false;
     videoDuration = 0;
+    currentTime = 0;
     videoFileName = "";
     progress = null;
     processLog = [];
@@ -225,12 +230,14 @@
   }
 
   function onTimelineClick(e: MouseEvent) {
-    if (!timelineRef || videoDuration <= 0) return;
-    if ((e.target as HTMLElement).classList.contains("beat")) return;
-    const rect = timelineRef.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    if (x < LABEL_W) return;
-    const pct = (x - LABEL_W) / (rect.width - LABEL_W);
+    if (videoDuration <= 0) return;
+    // Only handle clicks on .beat-track elements (not label column)
+    const target = e.target as HTMLElement;
+    const track = target.closest(".beat-track") as HTMLElement | null;
+    if (!track) return;
+    if (target.classList.contains("beat")) return;
+    const rect = track.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
     seekTo(pct * videoDuration);
   }
 
@@ -246,15 +253,26 @@
     return m + ":" + String(sec).padStart(2, "0");
   }
 
-  function beatLeft(beat: Beat, timelineW: number): number {
-    return LABEL_W + ((beat.start_s / videoDuration) * (timelineW - LABEL_W));
+  function beatLeftPct(beat: Beat): number {
+    if (videoDuration <= 0) return 0;
+    return (beat.start_s / videoDuration) * 100;
   }
 
-  function beatWidth(beat: Beat, timelineW: number): number {
-    return Math.max(2, ((beat.end_s - beat.start_s) / videoDuration) * (timelineW - LABEL_W));
+  function beatWidthPct(beat: Beat): number {
+    if (videoDuration <= 0) return 0;
+    return Math.max(0.3, ((beat.end_s - beat.start_s) / videoDuration) * 100);
+  }
+
+  function onVideoError() {
+    if (!videoFailed && rawVideoPath) {
+      // Asset protocol failed — try file:// as fallback
+      videoFailed = true;
+      videoSrc = "file://" + rawVideoPath;
+    }
   }
 
   const progressPct = $derived(progress ? Math.round(progress.pct * 100) : 0);
+  const playheadPct = $derived(videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0);
 </script>
 
 <!-- ── Import ──────────────────────────────────────────────────────────────────── -->
@@ -329,6 +347,7 @@
         controls
         class="video-player"
         onloadedmetadata={onVideoLoaded}
+        onerror={onVideoError}
       ></video>
     {/if}
 
@@ -343,24 +362,26 @@
     <!-- Beat timeline -->
     {#if beatTopics.length > 0 && videoDuration > 0}
       <div class="timeline" bind:this={timelineRef} onclick={onTimelineClick}>
-        <div class="playhead" style="left: {playheadX}px"></div>
         {#each beatTopics as topic}
           <div class="topic-row">
             <div class="topic-label-col" title={topic.topic_label}>{topic.topic_id}</div>
-            {#each topic.beats as beat}
-              <div
-                class="beat beat-{beat.type}"
-                style="left: {beatLeft(beat, timelineRef?.clientWidth ?? 800)}px; width: {beatWidth(beat, timelineRef?.clientWidth ?? 800)}px"
-                title={`[${beat.type}] ${fmtTime(beat.start_s)}–${fmtTime(beat.end_s)} (${beat.confidence})\n${beat.label}`}
-                onclick={() => seekTo(beat.start_s)}
-                onmouseenter={() => { hoverInfo = `[${beat.type}] ${fmtTime(beat.start_s)}–${fmtTime(beat.end_s)} | ${beat.label}`; }}
-                onmouseleave={() => { hoverInfo = ""; }}
-                role="button"
-                tabindex="0"
-              >
-                {beat.label}
-              </div>
-            {/each}
+            <div class="beat-track">
+              <div class="playhead" style="left: {playheadPct}%"></div>
+              {#each topic.beats as beat}
+                <div
+                  class="beat beat-{beat.type}"
+                  style="left: {beatLeftPct(beat)}%; width: {beatWidthPct(beat)}%"
+                  title={`[${beat.type}] ${fmtTime(beat.start_s)}–${fmtTime(beat.end_s)} (${beat.confidence})\n${beat.label}`}
+                  onclick={() => seekTo(beat.start_s)}
+                  onmouseenter={() => { hoverInfo = `[${beat.type}] ${fmtTime(beat.start_s)}–${fmtTime(beat.end_s)} | ${beat.label}`; }}
+                  onmouseleave={() => { hoverInfo = ""; }}
+                  role="button"
+                  tabindex="0"
+                >
+                  {beat.label}
+                </div>
+              {/each}
+            </div>
           </div>
         {/each}
       </div>
@@ -488,25 +509,28 @@
   }
 
   .topic-row {
-    position: relative;
+    display: flex;
     height: 28px;
     border-bottom: 1px solid #1a1a1a;
   }
 
   .topic-label-col {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 40px;
-    height: 100%;
+    width: 60px;
+    min-width: 60px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 11px;
+    font-size: 10px;
     color: #555;
-    z-index: 2;
     background: #111;
     border-right: 1px solid #1a1a1a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .beat-track {
+    position: relative;
+    flex: 1;
   }
 
   .beat {
