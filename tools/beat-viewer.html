@@ -15,7 +15,7 @@
 
   #timeline { position: relative; width: 100%; overflow-x: auto; margin-bottom: 0.5rem; border: 1px solid #1e1e1e; background: #111; }
   .topic-row { position: relative; height: 28px; border-bottom: 1px solid #1a1a1a; }
-  .topic-label-col { position: absolute; left: 0; top: 0; width: 40px; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #555; z-index: 2; background: #111; border-right: 1px solid #1a1a1a; }
+  .topic-label-col { position: absolute; left: 0; top: 0; width: 140px; height: 100%; display: flex; align-items: center; padding: 0 6px; font-size: 10px; color: #666; z-index: 2; background: #111; border-right: 1px solid #1a1a1a; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .beat { position: absolute; top: 3px; height: 22px; border-radius: 2px; cursor: pointer; opacity: 0.85; transition: opacity 0.1s; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; line-height: 22px; padding: 0 4px; color: rgba(0,0,0,0.7); min-width: 2px; }
   .beat:hover { opacity: 1; z-index: 10; }
 
@@ -75,7 +75,7 @@ const status = document.getElementById("status");
 
 let duration = 0;
 let beats = [];
-const LABEL_W = 40;
+const LABEL_W = 140;
 
 // ── Video loading ──────────────────────────────────────────────────
 document.getElementById("video-input").addEventListener("change", (e) => {
@@ -139,7 +139,7 @@ function render() {
 
     const label = document.createElement("div");
     label.className = "topic-label-col";
-    label.textContent = topic.topic_id;
+    label.textContent = topic.topic_label;
     label.title = topic.topic_label;
     row.appendChild(label);
 
