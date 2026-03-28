@@ -328,14 +328,32 @@ def _run_ingest_and_transcribe(
     progress(1, "Ingesting video...")
 
     def _download_progress(pct: float):
+        """Emit download sub-step progress (0-95% of step 1)."""
+        if json_progress:
+            # Download is ~95% of step 1 time for Twitch URLs.
+            # Reserve last 5% for copy + audio extraction.
+            effective_pct = pct * 0.95
+            sys.stdout.write(
+                _json.dumps({
+                    "step": 1,
+                    "total": total_steps,
+                    "pct": round(effective_pct / total_steps, 3),
+                    "msg": f"Downloading: {int(pct * 100)}%",
+                    "download_pct": round(pct * 100),
+                })
+                + "\n"
+            )
+            sys.stdout.flush()
+
+    def _ingest_status(msg: str):
+        """Emit ingest sub-step status (shown as wait message)."""
         if json_progress:
             sys.stdout.write(
                 _json.dumps({
                     "step": 1,
                     "total": total_steps,
-                    "pct": round(pct / total_steps, 3),
-                    "msg": f"Downloading: {int(pct * 100)}%",
-                    "download_pct": round(pct * 100),
+                    "pct": round(0.95 / total_steps, 3),
+                    "msg": msg,
                 })
                 + "\n"
             )
@@ -344,6 +362,7 @@ def _run_ingest_and_transcribe(
     project_dir = ingest_video(
         input_video_path, ffmpeg_path, quality=quality,
         download_progress_callback=_download_progress if json_progress else None,
+        status_callback=_ingest_status if json_progress else None,
     )
     if project_dir is None:
         fail(1, get_ingest_error() or "Ingest failed")
