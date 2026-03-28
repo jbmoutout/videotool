@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+  import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -7,7 +7,7 @@
 
   // ── types ────────────────────────────────────────────────────────────────────
 
-  type Screen = "import" | "processing" | "results";
+  type Screen = "import" | "processing";
 
   interface ProgressMsg {
     step: number;
@@ -28,26 +28,6 @@
     step: number;
   }
 
-  interface Beat {
-    type: string;
-    start_s: number;
-    end_s: number;
-    confidence: number;
-    label: string;
-  }
-
-  interface BeatTopic {
-    topic_id: string;
-    topic_label: string;
-    beats: Beat[];
-  }
-
-  interface BeatsResponse {
-    beats: BeatTopic[];
-    video_path: string | null;
-    duration_seconds: number | null;
-  }
-
   // ── state ─────────────────────────────────────────────────────────────────────
 
   let screen = $state<Screen>("import");
@@ -57,17 +37,6 @@
   let videoFileName = $state<string>("");
   let processLog = $state<string[]>([]);
   let urlInput = $state("");
-
-  // ── beat timeline state ───────────────────────────────────────────────────────
-
-  let beatTopics = $state<BeatTopic[]>([]);
-  let videoSrc = $state<string>("");
-  let rawVideoPath = $state<string>("");
-  let videoDuration = $state(0);
-  let videoFailed = $state(false);
-  let hoverInfo = $state("");
-  let playerRef = $state<HTMLVideoElement | null>(null);
-  let timelineRef = $state<HTMLDivElement | null>(null);
 
   // ── spinner ───────────────────────────────────────────────────────────────────
 
@@ -80,24 +49,6 @@
         spinnerIdx = (spinnerIdx + 1) % FRAMES.length;
       }, 80);
       return () => clearInterval(iv);
-    }
-  });
-
-  // ── playhead sync ─────────────────────────────────────────────────────────────
-
-  let currentTime = $state(0);
-
-  $effect(() => {
-    if (screen === "results" && playerRef && videoDuration > 0) {
-      let animId: number;
-      const update = () => {
-        if (playerRef) {
-          currentTime = playerRef.currentTime;
-        }
-        animId = requestAnimationFrame(update);
-      };
-      animId = requestAnimationFrame(update);
-      return () => cancelAnimationFrame(animId);
     }
   });
 
@@ -115,24 +66,17 @@
         progress = e.payload;
       }),
       listen<DoneMsg>("pipeline-done", async (e) => {
+        // Pipeline complete — start the viewer server and navigate to it
         try {
-          const resp = await invoke<BeatsResponse>("load_beats", {
+          const port = await invoke<number>("start_viewer_server", {
             projectDir: e.payload.project_dir,
           });
-          beatTopics = resp.beats;
-          if (resp.duration_seconds) {
-            videoDuration = resp.duration_seconds;
-          }
-          if (resp.video_path) {
-            rawVideoPath = resp.video_path;
-            // Try asset protocol first, fall back to file:// in onerror
-            videoSrc = convertFileSrc(resp.video_path);
-          }
+          // Navigate the webview to the viewer served by our HTTP server
+          window.location.href = `http://127.0.0.1:${port}/`;
         } catch (err) {
-          beatTopics = [];
           errorMsg = String(err);
+          screen = "import";
         }
-        screen = "results";
       }),
       listen<ErrorMsg>("pipeline-error-msg", (e) => {
         errorMsg = e.payload.error;
@@ -159,9 +103,6 @@
     errorMsg = null;
     progress = null;
     processLog = [];
-    beatTopics = [];
-    videoSrc = "";
-    videoDuration = 0;
     videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
     try {
@@ -206,73 +147,7 @@
     processLog = [];
   }
 
-  function reset() {
-    screen = "import";
-    beatTopics = [];
-    videoSrc = "";
-    rawVideoPath = "";
-    videoFailed = false;
-    videoDuration = 0;
-    currentTime = 0;
-    videoFileName = "";
-    progress = null;
-    processLog = [];
-    errorMsg = null;
-    urlInput = "";
-    hoverInfo = "";
-  }
-
-  function seekTo(seconds: number) {
-    if (playerRef) {
-      playerRef.currentTime = seconds;
-      if (playerRef.paused && playerRef.src) playerRef.play();
-    }
-  }
-
-  function onTimelineClick(e: MouseEvent) {
-    if (videoDuration <= 0) return;
-    // Only handle clicks on .beat-track elements (not label column)
-    const target = e.target as HTMLElement;
-    const track = target.closest(".beat-track") as HTMLElement | null;
-    if (!track) return;
-    if (target.classList.contains("beat")) return;
-    const rect = track.getBoundingClientRect();
-    const pct = (e.clientX - rect.left) / rect.width;
-    seekTo(pct * videoDuration);
-  }
-
-  function onVideoLoaded() {
-    if (playerRef && playerRef.duration && isFinite(playerRef.duration)) {
-      videoDuration = playerRef.duration;
-    }
-  }
-
-  function fmtTime(s: number): string {
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return m + ":" + String(sec).padStart(2, "0");
-  }
-
-  function beatLeftPct(beat: Beat): number {
-    if (videoDuration <= 0) return 0;
-    return (beat.start_s / videoDuration) * 100;
-  }
-
-  function beatWidthPct(beat: Beat): number {
-    if (videoDuration <= 0) return 0;
-    return Math.max(0.3, ((beat.end_s - beat.start_s) / videoDuration) * 100);
-  }
-
-  function onVideoError() {
-    if (!videoFailed && rawVideoPath) {
-      // Asset protocol failed — try file:// as fallback
-      videoFailed = true;
-      videoSrc = "file://" + rawVideoPath;
-    }
-  }
-
   const progressPct = $derived(progress ? Math.round(progress.pct * 100) : 0);
-  const playheadPct = $derived(videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0);
 </script>
 
 <!-- ── Import ──────────────────────────────────────────────────────────────────── -->
@@ -325,73 +200,6 @@
 
     <div><button class="inline-btn" onclick={cancelPipeline}>[cancel]</button></div>
   </main>
-
-<!-- ── Results (Beat Timeline) ───────────────────────────────────────────────── -->
-{:else if screen === "results"}
-  <main class="screen results-screen">
-    <div class="results-header">
-      <p class="title">VodTool</p>
-      <p class="dim">{videoFileName} · {beatTopics.length} topics</p>
-      <button class="inline-btn" onclick={reset}>[new]</button>
-    </div>
-
-    {#if errorMsg}
-      <p class="error-line">✗ {errorMsg} <button class="inline-btn" onclick={() => (errorMsg = null)}>dismiss</button></p>
-    {/if}
-
-    <!-- Video player -->
-    {#if videoSrc}
-      <video
-        bind:this={playerRef}
-        src={videoSrc}
-        controls
-        class="video-player"
-        onloadedmetadata={onVideoLoaded}
-        onerror={onVideoError}
-      ></video>
-    {/if}
-
-    <!-- Legend -->
-    <div class="legend">
-      <div class="legend-item"><div class="legend-swatch hook"></div>hook</div>
-      <div class="legend-item"><div class="legend-swatch build"></div>build</div>
-      <div class="legend-item"><div class="legend-swatch peak"></div>peak</div>
-      <div class="legend-item"><div class="legend-swatch resolution"></div>resolution</div>
-    </div>
-
-    <!-- Beat timeline -->
-    {#if beatTopics.length > 0 && videoDuration > 0}
-      <div class="timeline" bind:this={timelineRef} onclick={onTimelineClick}>
-        {#each beatTopics as topic}
-          <div class="topic-row">
-            <div class="topic-label-col" title={topic.topic_label}>{topic.topic_id}</div>
-            <div class="beat-track">
-              <div class="playhead" style="left: {playheadPct}%"></div>
-              {#each topic.beats as beat}
-                <div
-                  class="beat beat-{beat.type}"
-                  style="left: {beatLeftPct(beat)}%; width: {beatWidthPct(beat)}%"
-                  title={`[${beat.type}] ${fmtTime(beat.start_s)}–${fmtTime(beat.end_s)} (${beat.confidence})\n${beat.label}`}
-                  onclick={() => seekTo(beat.start_s)}
-                  onmouseenter={() => { hoverInfo = `[${beat.type}] ${fmtTime(beat.start_s)}–${fmtTime(beat.end_s)} | ${beat.label}`; }}
-                  onmouseleave={() => { hoverInfo = ""; }}
-                  role="button"
-                  tabindex="0"
-                >
-                  {beat.label}
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/each}
-      </div>
-    {:else if beatTopics.length === 0 && !errorMsg}
-      <p class="hint dim">no beats found. try a different file or a longer recording.</p>
-    {/if}
-
-    <!-- Hover info -->
-    <div class="hover-info">{hoverInfo || "\u00A0"}</div>
-  </main>
 {/if}
 
 <style>
@@ -413,13 +221,8 @@
   }
   .screen.drag-over { background: #161616; }
 
-  .results-screen {
-    gap: 0.5rem;
-  }
-
   /* ── header ──────────────────────────────────────────────────────── */
   .title { color: #fff; margin-bottom: 0.4rem; }
-  .results-header { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; }
   .dim { color: #555; }
 
   /* ── import ──────────────────────────────────────────────────────── */
@@ -481,101 +284,6 @@
     transition: width 0.3s ease;
   }
   .pct { margin-bottom: 1rem; }
-
-  /* ── results: video ─────────────────────────────────────────────── */
-  .video-player {
-    width: 100%;
-    max-height: 45vh;
-    background: #000;
-    display: block;
-  }
-
-  /* ── results: legend ────────────────────────────────────────────── */
-  .legend { display: flex; gap: 1rem; }
-  .legend-item { display: flex; align-items: center; gap: 0.3rem; font-size: 11px; color: #666; }
-  .legend-swatch { width: 12px; height: 12px; border-radius: 2px; }
-  .legend-swatch.hook { background: #c05050; }
-  .legend-swatch.build { background: #4080c0; }
-  .legend-swatch.peak { background: #c0a030; }
-  .legend-swatch.resolution { background: #40a060; }
-
-  /* ── results: timeline ──────────────────────────────────────────── */
-  .timeline {
-    position: relative;
-    width: 100%;
-    overflow-x: auto;
-    border: 1px solid #1e1e1e;
-    background: #111;
-  }
-
-  .topic-row {
-    display: flex;
-    height: 28px;
-    border-bottom: 1px solid #1a1a1a;
-  }
-
-  .topic-label-col {
-    width: 60px;
-    min-width: 60px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    color: #555;
-    background: #111;
-    border-right: 1px solid #1a1a1a;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .beat-track {
-    position: relative;
-    flex: 1;
-  }
-
-  .beat {
-    position: absolute;
-    top: 3px;
-    height: 22px;
-    border-radius: 2px;
-    cursor: pointer;
-    opacity: 0.85;
-    transition: opacity 0.1s;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-    font-size: 10px;
-    line-height: 22px;
-    padding: 0 4px;
-    color: rgba(0,0,0,0.7);
-    min-width: 2px;
-  }
-  .beat:hover { opacity: 1; z-index: 10; }
-
-  .beat-hook { background: #c05050; }
-  .beat-build { background: #4080c0; }
-  .beat-peak { background: #c0a030; }
-  .beat-resolution { background: #40a060; }
-
-  .playhead {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 1px;
-    background: #fff;
-    z-index: 20;
-    pointer-events: none;
-  }
-
-  .hover-info {
-    height: 2.4em;
-    line-height: 2.4em;
-    color: #888;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    padding: 0 0.25rem;
-  }
 
   /* ── shared ──────────────────────────────────────────────────────── */
   .inline-btn {
