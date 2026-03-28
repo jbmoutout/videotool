@@ -35,6 +35,8 @@ pub struct ProgressMsg {
     pub total: u32,
     pub pct: f64,
     pub msg: String,
+    #[serde(default)]
+    pub download_pct: Option<u32>,
 }
 
 /// Error line emitted by `vodtool pipeline --json-progress` on failure.
@@ -107,7 +109,7 @@ pub struct BeatsResponse {
 /// Spawns subprocess, reads stdout line-by-line in a Tokio task,
 /// emits `progress`, `done`, or `error` events to the frontend.
 #[tauri::command]
-async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String> {
+async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<String>) -> Result<(), String> {
     let cli_path = resolve_cli_path(&app)?;
 
     // Augment PATH so the subprocess can find ffmpeg/ffprobe regardless of
@@ -122,8 +124,9 @@ async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String
     eprintln!("[vodtool-app] video_path = {:?}", video_path);
     eprintln!("[vodtool-app] PATH = {}", augmented_path);
 
+    let quality_val = quality.unwrap_or_else(|| "worst".to_string());
     let mut child = Command::new(&cli_path)
-        .args(["beats", &video_path, "--json-progress"])
+        .args(["beats", &video_path, "--json-progress", "--quality", &quality_val])
         .env("PATH", augmented_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
