@@ -93,18 +93,12 @@ BEAT TYPES:
   Often skippable for YouTube.
 
 RULES:
-- First identify the distinct topics (coherent subjects/themes).
-- Then for each topic, identify the narrative beats.
 - Not every topic has all 4 beat types. A short tangent might only
   have a hook and peak.
 - The hook is NOT always at the beginning. Often the most interesting
   moment is in the middle.
 - Beats can overlap (a hook can also be the start of a peak).
-- IMPORTANT: Beats should cover BROAD narrative spans, not tiny fragments.
-  A peak can span 5-10 minutes of discussion. Don't break a continuous
-  argument into many small beats — group the whole argument as one peak.
-- Return timestamps as seconds from stream start (matching the
-  [Ns] markers in the transcript).
+- Return timestamps as seconds from stream start.
 - Include a confidence score (0.0-1.0) for each beat.
 - Include a short label describing what happens in each beat.
 - Generate labels in the same language as the transcript.
@@ -113,8 +107,8 @@ OUTPUT FORMAT: Return ONLY valid JSON matching this schema:
 {{
   "beats": [
     {{
-      "topic_id": "topic_0001",
-      "topic_label": "Short punchy topic label (3-6 words)",
+      "topic_id": "...",
+      "topic_label": "...",
       "beats": [
         {{"type": "hook|build|peak|resolution", "start_s": N, "end_s": N,
          "confidence": 0.0-1.0, "label": "short description"}}
