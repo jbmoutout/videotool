@@ -1,10 +1,12 @@
 """Transcription provider abstraction for vodtool.
 
-Defines the TranscriptionProvider Protocol and one implementation:
+Defines the TranscriptionProvider Protocol and two implementations:
 - OpenAITranscriptionProvider: uses OpenAI Whisper API with chunking for >25MB files
+- GroqTranscriptionProvider: uses Groq Whisper API (whisper-large-v3-turbo by default)
+  — same chunking logic, ~10-20x faster than OpenAI for long files
 
 Audio chunking strategy:
-  OpenAI Whisper API has a 25MB file size limit. A 4-hour VOD produces 200-400MB
+  Both APIs have a ~25MB file size limit. A 4-hour VOD produces 200-400MB
   of audio. Files exceeding the limit are split into CHUNK_DURATION_SECONDS segments,
   each transcribed independently, then stitched with timestamp offsets applied.
 
@@ -43,23 +45,11 @@ class TranscriptionProvider(Protocol):
         ...
 
 
-class OpenAITranscriptionProvider:
-    """Transcribes audio using the OpenAI Whisper API.
+class _WhisperAPIBase:
+    """Shared transcription logic for OpenAI-compatible Whisper APIs."""
 
-    Automatically chunks files larger than 25MB and stitches results with
-    correct timestamp offsets.
-    """
-
-    def __init__(self, api_key: Optional[str] = None, model: str = "whisper-1"):
-        api_key = api_key or os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY not set")
-        try:
-            import openai
-        except ImportError:
-            raise ImportError("openai package not installed. Run: pip install openai")
-        self._client = openai.OpenAI(api_key=api_key)
-        self._model = model
+    _client: object
+    _model: str
 
     def transcribe(self, audio_path: Path, language: Optional[str] = None) -> dict:
         if not audio_path.exists():
@@ -73,13 +63,12 @@ class OpenAITranscriptionProvider:
     def _transcribe_file(
         self, audio_path: Path, language: Optional[str], offset_seconds: float
     ) -> dict:
-        """Transcribe a single file and apply timestamp offset."""
         kwargs: dict = {"model": self._model, "response_format": "verbose_json"}
         if language:
             kwargs["language"] = language
 
         with audio_path.open("rb") as f:
-            response = self._client.audio.transcriptions.create(file=f, **kwargs)
+            response = self._client.audio.transcriptions.create(file=f, **kwargs)  # type: ignore[attr-defined]
 
         segments = [
             {
@@ -97,13 +86,6 @@ class OpenAITranscriptionProvider:
         }
 
     def _transcribe_chunked(self, audio_path: Path, language: Optional[str]) -> dict:
-        """Split audio into chunks, transcribe each, stitch with timestamp offsets."""
-        try:
-            import subprocess
-        except ImportError:
-            raise RuntimeError("subprocess module not available")
-
-        # Probe audio duration via ffprobe
         total_duration = _probe_duration(audio_path)
         n_chunks = max(1, int(total_duration / CHUNK_DURATION_SECONDS) + 1)
 
@@ -136,6 +118,55 @@ class OpenAITranscriptionProvider:
             "model": self._model,
             "segments": _deduplicate_boundary_segments(all_segments),
         }
+
+
+class OpenAITranscriptionProvider(_WhisperAPIBase):
+    """Transcribes audio using the OpenAI Whisper API (whisper-1).
+
+    Automatically chunks files larger than 25MB and stitches results with
+    correct timestamp offsets.
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model: str = "whisper-1"):
+        api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY not set")
+        try:
+            import openai
+        except ImportError:
+            raise ImportError("openai package not installed. Run: pip install openai")
+        self._client = openai.OpenAI(api_key=api_key)
+        self._model = model
+
+
+class GroqTranscriptionProvider(_WhisperAPIBase):
+    """Transcribes audio using the Groq Whisper API.
+
+    Uses the OpenAI-compatible Groq endpoint — ~10-20x faster than OpenAI
+    thanks to Groq's LPU hardware. Runs whisper-large-v3-turbo by default,
+    which is also more accurate than OpenAI's whisper-1 (medium-based).
+
+    Available models:
+      whisper-large-v3-turbo       — default, fast + accurate
+      whisper-large-v3             — max accuracy, slightly slower
+      distil-whisper-large-v3-en   — English only, fastest
+
+    Requires GROQ_API_KEY (free tier: ~2hrs audio/day). Get one at console.groq.com.
+    """
+
+    def __init__(self, api_key: Optional[str] = None, model: str = "whisper-large-v3-turbo"):
+        api_key = api_key or os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise ValueError("GROQ_API_KEY not set. Get a free key at https://console.groq.com")
+        try:
+            import openai
+        except ImportError:
+            raise ImportError("openai package not installed. Run: pip install openai")
+        self._client = openai.OpenAI(
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1",
+        )
+        self._model = model
 
 
 def _probe_duration(audio_path: Path) -> float:
