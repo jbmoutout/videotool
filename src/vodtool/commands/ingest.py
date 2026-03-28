@@ -106,7 +106,13 @@ def get_video_duration(video_path: Path, ffprobe_path: str = "ffprobe") -> Optio
     return None
 
 
-def extract_audio(video_path: Path, output_path: Path, ffmpeg_path: str = "ffmpeg") -> bool:
+def extract_audio(
+    video_path: Path,
+    output_path: Path,
+    ffmpeg_path: str = "ffmpeg",
+    duration: Optional[float] = None,
+    progress_callback=None,
+) -> bool:
     """
     Extract audio from video as mono 16kHz WAV.
 
@@ -114,31 +120,67 @@ def extract_audio(video_path: Path, output_path: Path, ffmpeg_path: str = "ffmpe
         video_path: Path to source video file
         output_path: Path for output audio.wav file
         ffmpeg_path: Path to ffmpeg binary
+        duration: Known video duration in seconds (for progress %)
+        progress_callback: Optional callable(pct: float) called with 0.0-1.0
 
     Returns:
         True if successful, False otherwise
     """
+    import re as _re
+
+    cmd = [
+        ffmpeg_path,
+        "-i", str(video_path),
+        "-ac", "1",       # mono
+        "-ar", "16000",   # 16kHz sample rate
+        "-y",             # overwrite output
+    ]
+    if progress_callback and duration and duration > 0:
+        # -progress pipe:1 makes ffmpeg write progress to stdout
+        cmd.extend(["-progress", "pipe:1"])
+    cmd.append(str(output_path))
+
+    if not progress_callback or not duration or duration <= 0:
+        # Simple mode: no progress tracking
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            logger.debug(f"ffmpeg output: {result.stderr}")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"ffmpeg failed: {e.stderr}")
+            return False
+
+    # Progress mode: parse ffmpeg's -progress output
     try:
-        result = subprocess.run(
-            [
-                ffmpeg_path,
-                "-i",
-                str(video_path),
-                "-ac",
-                "1",  # mono
-                "-ar",
-                "16000",  # 16kHz sample rate
-                "-y",  # overwrite output
-                str(output_path),
-            ],
-            capture_output=True,
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
-            check=True,
         )
-        logger.debug(f"ffmpeg output: {result.stderr}")
+
+        for line in proc.stdout:
+            line = line.strip()
+            # ffmpeg -progress outputs lines like: out_time_us=12345678
+            if line.startswith("out_time_us="):
+                try:
+                    us = int(line.split("=")[1])
+                    secs = us / 1_000_000
+                    pct = min(secs / duration, 0.99)
+                    progress_callback(pct)
+                except (ValueError, ZeroDivisionError):
+                    pass
+
+        proc.wait()
+        if proc.returncode != 0:
+            logger.error("ffmpeg failed during audio extraction")
+            return False
+
+        progress_callback(1.0)
         return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"ffmpeg failed: {e.stderr}")
+
+    except Exception as e:
+        logger.error(f"ffmpeg failed: {e}")
         return False
 
 
@@ -297,7 +339,15 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
     if status_callback:
         status_callback("extracting audio...")
 
-    if not extract_audio(source_path, audio_path, ffmpeg_path):
+    def _audio_progress(pct: float):
+        if status_callback:
+            status_callback(f"extracting audio: {int(pct * 100)}%")
+
+    if not extract_audio(
+        source_path, audio_path, ffmpeg_path,
+        duration=duration,
+        progress_callback=_audio_progress if status_callback else None,
+    ):
         _last_error = "Audio extraction failed"
         console.print("[red]Error: Audio extraction failed[/red]")
         shutil.rmtree(project_dir, ignore_errors=True)
