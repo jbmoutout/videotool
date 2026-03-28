@@ -4547,6 +4547,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tokio",
+ "tokio-util",
  "tower-http",
 ]
 
