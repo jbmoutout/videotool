@@ -33,13 +33,17 @@ pub struct ErrorMsg {
     pub step: u32,
 }
 
-/// Done line emitted after step 5 succeeds.
+/// Done line emitted after pipeline succeeds.
 /// {"done":true,"project_dir":"/...","topic_count":7}
+/// Beats pipeline also adds: {"done":true,"project_dir":"/...","topic_count":6,"beat_count":18}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DoneMsg {
     pub done: bool,
     pub project_dir: String,
+    #[serde(default)]
     pub topic_count: u32,
+    #[serde(default)]
+    pub beat_count: u32,
 }
 
 /// Topic entry from topic_map_llm.json (subset of fields needed for UI).
@@ -50,6 +54,39 @@ pub struct TopicEntry {
     pub summary: String,
     pub duration_label: String,
     pub chunk_count: u32,
+}
+
+/// Beat entry for a single narrative beat within a topic.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BeatEntry {
+    #[serde(rename = "type")]
+    pub beat_type: String,
+    pub start_s: f64,
+    pub end_s: f64,
+    pub confidence: f64,
+    pub label: String,
+}
+
+/// Topic with narrative beats from beats.json.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BeatTopic {
+    pub topic_id: String,
+    pub topic_label: String,
+    pub beats: Vec<BeatEntry>,
+}
+
+/// Wrapper for beats.json.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct BeatsFile {
+    beats: Vec<BeatTopic>,
+}
+
+/// Response from load_beats: beats data + video file path.
+#[derive(Debug, Serialize, Clone)]
+pub struct BeatsResponse {
+    pub beats: Vec<BeatTopic>,
+    pub video_path: Option<String>,
+    pub duration_seconds: Option<f64>,
 }
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
@@ -74,7 +111,7 @@ async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String
     eprintln!("[vodtool-app] PATH = {}", augmented_path);
 
     let mut child = Command::new(&cli_path)
-        .args(["pipeline", &video_path, "--json-progress"])
+        .args(["beats", &video_path, "--json-progress"])
         .env("PATH", augmented_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
@@ -166,6 +203,55 @@ fn load_topics(project_dir: String) -> Result<Vec<TopicEntry>, String> {
     }
 
     Err(format!("No topic map found in {project_dir}"))
+}
+
+/// Load beats from project_dir/beats.json + discover video file path.
+#[tauri::command]
+fn load_beats(project_dir: String) -> Result<BeatsResponse, String> {
+    let base = std::path::Path::new(&project_dir);
+
+    // Load beats.json
+    let beats_path = base.join("beats.json");
+    if !beats_path.exists() {
+        return Err(format!("beats.json not found in {project_dir}"));
+    }
+
+    let data = std::fs::read_to_string(&beats_path)
+        .map_err(|e| format!("Failed to read beats.json: {e}"))?;
+    let beats_file: BeatsFile = serde_json::from_str(&data)
+        .map_err(|e| format!("Failed to parse beats.json: {e}"))?;
+
+    // Discover video file — check source.* files in project dir
+    let video_path = find_video_file(base);
+
+    // Get duration from meta.json
+    let duration_seconds = base.join("meta.json")
+        .exists()
+        .then(|| {
+            std::fs::read_to_string(base.join("meta.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v.get("duration_seconds")?.as_f64())
+        })
+        .flatten();
+
+    Ok(BeatsResponse {
+        beats: beats_file.beats,
+        video_path,
+        duration_seconds,
+    })
+}
+
+/// Find the video file in a project directory (source.mp4, source.mkv, etc.).
+fn find_video_file(base: &std::path::Path) -> Option<String> {
+    let extensions = ["mp4", "mkv", "mov", "avi", "webm", "ts"];
+    for ext in &extensions {
+        let path = base.join(format!("source.{ext}"));
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 /// Cancel the running pipeline (kill subprocess).
@@ -267,6 +353,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_pipeline,
             load_topics,
+            load_beats,
             cancel_pipeline,
         ])
         .run(tauri::generate_context!())
