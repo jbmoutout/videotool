@@ -1,7 +1,10 @@
+use axum::extract::State as AxumState;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, BufReader};
 use tokio::process::{Child, Command};
 
 // ── shared state ──────────────────────────────────────────────────────────────
@@ -11,6 +14,13 @@ type ChildHandle = Arc<Mutex<Option<Child>>>;
 
 struct AppState {
     child: ChildHandle,
+    viewer_server_port: Arc<Mutex<Option<u16>>>,
+}
+
+/// Shared state for the axum video/viewer server.
+#[derive(Clone)]
+struct ViewerServerState {
+    project_dir: String,
 }
 
 // ── IPC message types ─────────────────────────────────────────────────────────
@@ -254,6 +264,213 @@ fn find_video_file(base: &std::path::Path) -> Option<String> {
     None
 }
 
+// ── viewer server ────────────────────────────────────────────────────────────
+
+/// The embedded viewer HTML (auto-loading variant of beat-viewer.html).
+const VIEWER_HTML: &str = include_str!("viewer.html");
+
+/// Start a localhost HTTP server that serves the beat viewer, video, and beats.json.
+/// Returns the port number so the frontend can navigate to it.
+#[tauri::command]
+async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16, String> {
+    // Check if server is already running
+    let port_handle = app.state::<AppState>().viewer_server_port.clone();
+    if let Some(port) = *port_handle.lock().unwrap() {
+        // Server already running — just return the port
+        // (project_dir might have changed, but we restart for simplicity)
+        return Ok(port);
+    }
+
+    let state = ViewerServerState {
+        project_dir: project_dir.clone(),
+    };
+
+    let cors = tower_http::cors::CorsLayer::permissive();
+
+    let router = axum::Router::new()
+        .route("/", axum::routing::get(serve_viewer_html))
+        .route("/video", axum::routing::get(serve_video))
+        .route("/beats.json", axum::routing::get(serve_beats_json))
+        .layer(cors)
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("Failed to bind viewer server: {e}"))?;
+
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get port: {e}"))?
+        .port();
+
+    eprintln!("[vodtool-app] viewer server starting on http://127.0.0.1:{port}");
+
+    tokio::spawn(async move {
+        axum::serve(listener, router)
+            .await
+            .unwrap_or_else(|e| eprintln!("[vodtool-app] viewer server error: {e}"));
+    });
+
+    *port_handle.lock().unwrap() = Some(port);
+
+    Ok(port)
+}
+
+/// Serve the embedded viewer HTML.
+async fn serve_viewer_html() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        VIEWER_HTML,
+    )
+}
+
+/// Serve beats.json from the project directory.
+async fn serve_beats_json(AxumState(state): AxumState<ViewerServerState>) -> impl IntoResponse {
+    let path = std::path::Path::new(&state.project_dir).join("beats.json");
+    match tokio::fs::read_to_string(&path).await {
+        Ok(data) => (
+            StatusCode::OK,
+            [("content-type", "application/json")],
+            data,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            format!("beats.json not found: {e}"),
+        )
+            .into_response(),
+    }
+}
+
+/// Serve the video file with HTTP Range request support for seeking.
+async fn serve_video(
+    AxumState(state): AxumState<ViewerServerState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let base = std::path::Path::new(&state.project_dir);
+    let video_path = match find_video_file(base) {
+        Some(p) => p,
+        None => {
+            return (StatusCode::NOT_FOUND, "No video file found").into_response();
+        }
+    };
+
+    let metadata = match tokio::fs::metadata(&video_path).await {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot read video: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    let file_size = metadata.len();
+    let content_type = if video_path.ends_with(".mkv") {
+        "video/x-matroska"
+    } else if video_path.ends_with(".webm") {
+        "video/webm"
+    } else {
+        "video/mp4"
+    };
+
+    // Parse Range header
+    if let Some(range_header) = headers.get("range") {
+        if let Ok(range_str) = range_header.to_str() {
+            if let Some(range) = parse_range(range_str, file_size) {
+                let (start, end) = range;
+                let length = end - start + 1;
+
+                let mut file = match tokio::fs::File::open(&video_path).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Cannot open video: {e}"),
+                        )
+                            .into_response();
+                    }
+                };
+
+                if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Seek failed")
+                        .into_response();
+                }
+
+                let mut buf = vec![0u8; length as usize];
+                if let Err(e) = file.read_exact(&mut buf).await {
+                    // Partial read at end of file is OK
+                    if buf.is_empty() {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Read failed: {e}"),
+                        )
+                            .into_response();
+                    }
+                }
+
+                return (
+                    StatusCode::PARTIAL_CONTENT,
+                    [
+                        ("content-type", content_type),
+                        ("accept-ranges", "bytes"),
+                        (
+                            "content-range",
+                            &format!("bytes {start}-{end}/{file_size}"),
+                        ),
+                        ("content-length", &length.to_string()),
+                    ],
+                    buf,
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // No Range header — return full file (for small files or initial probe)
+    match tokio::fs::read(&video_path).await {
+        Ok(data) => (
+            StatusCode::OK,
+            [
+                ("content-type", content_type),
+                ("accept-ranges", "bytes"),
+                ("content-length", &file_size.to_string()),
+            ],
+            data,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Cannot read video: {e}"),
+        )
+            .into_response(),
+    }
+}
+
+/// Parse an HTTP Range header like "bytes=START-" or "bytes=START-END".
+fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
+    let range_str = range_str.strip_prefix("bytes=")?;
+    let parts: Vec<&str> = range_str.splitn(2, '-').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let start: u64 = parts[0].parse().ok()?;
+    let end: u64 = if parts[1].is_empty() {
+        file_size - 1
+    } else {
+        parts[1].parse().ok()?
+    };
+
+    if start > end || start >= file_size {
+        return None;
+    }
+
+    Some((start, end.min(file_size - 1)))
+}
+
 /// Cancel the running pipeline (kill subprocess).
 #[tauri::command]
 fn cancel_pipeline(app: AppHandle) {
@@ -337,11 +554,15 @@ mod tests {
 pub fn run() {
     let child_handle: ChildHandle = Arc::new(Mutex::new(None));
     let child_for_event = child_handle.clone();
+    let viewer_server_port: Arc<Mutex<Option<u16>>> = Arc::new(Mutex::new(None));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { child: child_handle })
+        .manage(AppState {
+            child: child_handle,
+            viewer_server_port,
+        })
         .on_window_event(move |_window, event| {
             // Kill subprocess when user closes the app — prevents orphaned process (TODO #9).
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -354,6 +575,7 @@ pub fn run() {
             start_pipeline,
             load_topics,
             load_beats,
+            start_viewer_server,
             cancel_pipeline,
         ])
         .run(tauri::generate_context!())
