@@ -25,19 +25,18 @@ classifiers = [
 
 dependencies = [
     "typer[all]>=0.9.0",
-    "openai-whisper>=20231117",
-    "sentence-transformers>=2.2.0",
-    "numpy>=1.24.0",
-    "scikit-learn>=1.3.0",
-    "pyannote.audio>=3.1.0",
     "python-dotenv>=1.0.0",
-    "nltk>=3.8.0",
+    "numpy>=1.24.0",
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
 ]
 
 [project.optional-dependencies]
-llm = [
-    "anthropic>=0.40.0",
-    "openai>=1.0.0",
+local = [
+    "openai-whisper>=20231117",
+    "sentence-transformers>=2.2.0",
+    "scikit-learn>=1.3.0",
+    "pyannote.audio>=3.1.0",
 ]
 dev = [
     "pytest>=7.0",
