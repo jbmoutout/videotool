@@ -14,6 +14,13 @@ from vodtool.utils.validation import validate_project_path
 console = Console()
 logger = logging.getLogger("vodtool")
 
+_last_error: Optional[str] = None
+
+
+def get_last_error() -> Optional[str]:
+    """Return the last error message set by llm_topics."""
+    return _last_error
+
 
 def format_duration(seconds: float) -> str:
     """
@@ -280,21 +287,27 @@ def llm_topics(
     Returns:
         Path to the topic_map_llm.json file, or None if failed
     """
+    global _last_error
+    _last_error = None
+
     # Validate project directory
     error = validate_project_path(project_path)
     if error:
+        _last_error = error
         console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Check for chunks.json
     chunks_path = require_file(project_path, "chunks.json", stage_name="chunks")
     if chunks_path is None:
+        _last_error = "chunks.json not found — run 'vodtool chunks' first"
         return None
 
     # Load chunks
     console.print("[cyan]Loading chunks...[/cyan]")
     chunks = safe_read_json(chunks_path)
     if chunks is None:
+        _last_error = "Failed to read chunks.json"
         return None
 
     logger.info(f"Loaded {len(chunks)} chunks")
@@ -333,6 +346,7 @@ def llm_topics(
                 llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics, chat_context=chat_context)
                 console.print("[green]✓ Used Anthropic API[/green]")
             except Exception as api_error:
+                _last_error = f"Anthropic API error: {api_error}"
                 console.print(f"[red]Error calling Anthropic API: {api_error}[/red]")
                 return None
 
@@ -350,6 +364,7 @@ def llm_topics(
             )
             console.print("[green]✓ Used local LLM (Ollama)[/green]")
         except Exception as e:
+            _last_error = f"Ollama error: {e}"
             console.print(f"[red]Error calling local LLM: {e}[/red]")
             return None
 
@@ -363,6 +378,7 @@ def llm_topics(
             llm_result = segment_topics_with_llm(client, chunks, max_topics=max_topics, chat_context=chat_context)
             console.print("[green]✓ Used Anthropic API[/green]")
         except Exception as e:
+            _last_error = f"Anthropic API error: {e}"
             console.print(f"[red]Error calling Anthropic API: {e}[/red]")
             return None
 

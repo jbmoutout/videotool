@@ -13,6 +13,13 @@ from vodtool.utils.validation import validate_project_path
 console = Console()
 logger = logging.getLogger("vodtool")
 
+_last_error: Optional[str] = None
+
+
+def get_last_error() -> Optional[str]:
+    """Return the last error message set by transcribe_audio."""
+    return _last_error
+
 
 def transcribe_audio(
     project_path: Path,
@@ -35,13 +42,18 @@ def transcribe_audio(
     Returns:
         Path to transcript_raw.json, or None on failure
     """
+    global _last_error
+    _last_error = None
+
     error = validate_project_path(project_path)
     if error:
+        _last_error = error
         console.print(f"[red]Error: {error}[/red]")
         return None
 
     audio_path = project_path / "audio.wav"
     if not audio_path.exists():
+        _last_error = f"Audio file not found: {audio_path}"
         console.print(f"[red]Error: Audio file not found: {audio_path}[/red]")
         console.print("Run 'vodtool ingest' first to create a project with audio.")
         return None
@@ -57,6 +69,7 @@ def transcribe_audio(
     try:
         provider = OpenAITranscriptionProvider(model=model_name)
     except (ValueError, ImportError) as e:
+        _last_error = str(e)
         console.print(f"[red]Error: {e}[/red]")
         return None
 
@@ -76,12 +89,15 @@ def transcribe_audio(
             result = provider.transcribe(audio_path, language=language)
             logger.info("Transcription complete")
         except FileNotFoundError as e:
+            _last_error = str(e)
             console.print(f"[red]Error: {e}[/red]")
             return None
         except RuntimeError as e:
+            _last_error = str(e)
             console.print(f"[red]Error during transcription: {e}[/red]")
             return None
         except Exception as e:
+            _last_error = f"Unexpected error during transcription: {e}"
             console.print(f"[red]Unexpected error during transcription: {e}[/red]")
             return None
 

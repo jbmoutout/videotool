@@ -29,6 +29,14 @@ from vodtool.utils.validation import (
 console = Console()
 logger = logging.getLogger("vodtool")
 
+# Last error message from ingest_video — readable by pipeline after a None return.
+_last_error: Optional[str] = None
+
+
+def get_last_error() -> Optional[str]:
+    """Return the last error message set by ingest_video."""
+    return _last_error
+
 
 def check_ffmpeg_available(ffmpeg_path: str = "ffmpeg") -> bool:
     """Check if ffmpeg is installed and accessible."""
@@ -146,6 +154,8 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
     Returns:
         Path to the created project directory, or None if ingestion failed
     """
+    global _last_error
+    _last_error = None
     twitch_url = None
 
     # Handle Twitch URL input
@@ -154,6 +164,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
         video_id = parse_twitch_video_id(twitch_url)
 
         if not check_streamlink():
+            _last_error = "streamlink not installed. Install with: pip install streamlink"
             console.print("[red]Error: streamlink not installed.[/red]")
             console.print("Install it with: [bold]pip install streamlink[/bold]")
             return None
@@ -165,6 +176,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
         tmp_video = Path(tmp_dir) / "vod.mp4"
 
         if not download_vod(twitch_url, tmp_video, quality=quality):
+            _last_error = "Twitch VOD download failed"
             console.print("[red]Error: VOD download failed.[/red]")
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return None
@@ -182,6 +194,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
 
     # Check ffmpeg availability
     if not check_ffmpeg_available(ffmpeg_path):
+        _last_error = f"ffmpeg not found at: {ffmpeg_path}. Install with: brew install ffmpeg"
         console.print(
             f"[red]Error: ffmpeg not installed or not accessible at: {ffmpeg_path}[/red]",
         )
@@ -195,6 +208,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
     # Validate input file (file exists, is a file, has video extension)
     error = validate_video_file(input_video_path)
     if error:
+        _last_error = error
         console.print(f"[red]Error: {error}[/red]")
         return None
 
@@ -207,6 +221,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
     try:
         file_size = input_video_path.stat().st_size
     except OSError as e:
+        _last_error = f"Cannot access file: {e}"
         console.print(f"[red]Error: Cannot access file: {e}[/red]")
         return None
 
@@ -222,11 +237,13 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
     required_space = int(file_size * 1.2)  # 20% overhead for audio + temp files
     error = check_disk_space(projects_dir, required_space)
     if error:
+        _last_error = error
         console.print(f"[red]Error: {error}[/red]")
         return None
 
     project_dir = projects_dir / project_id
     if project_dir.exists():
+        _last_error = f"Project directory already exists: {project_dir}"
         console.print(f"[red]Error: Project directory already exists: {project_dir}[/red]")
         return None
 
@@ -234,6 +251,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
         project_dir.mkdir(parents=True)
         logger.info(f"Created project directory: {project_dir}")
     except OSError as e:
+        _last_error = f"Cannot create project directory: {e}"
         console.print(f"[red]Error: Cannot create project directory: {e}[/red]")
         return None
 
@@ -247,6 +265,7 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
         shutil.copy2(input_video_path, source_path)
         logger.info(f"Copied source video to: {source_path}")
     except (OSError, IOError, shutil.Error) as e:
+        _last_error = f"Failed to copy video: {e}"
         console.print(f"[red]Error copying video: {e}[/red]")
         console.print("[dim]Cleaning up project directory...[/dim]")
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -263,11 +282,13 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
     console.print("[cyan]Extracting audio (mono, 16kHz)...[/cyan]")
 
     if not extract_audio(source_path, audio_path, ffmpeg_path):
+        _last_error = "Audio extraction failed"
         console.print("[red]Error: Audio extraction failed[/red]")
         shutil.rmtree(project_dir, ignore_errors=True)
         return None
 
     if not audio_path.exists() or audio_path.stat().st_size == 0:
+        _last_error = "Audio file is empty or missing after extraction"
         console.print("[red]Error: Audio file is empty or missing[/red]")
         shutil.rmtree(project_dir, ignore_errors=True)
         return None
