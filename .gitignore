@@ -33,6 +33,9 @@ PIP_DELETE_THIS_DIRECTORY.txt
 # Tauri / Rust build artifacts
 src-tauri/target/
 src-tauri/gen/
+# External binaries (built by CI or locally via pyinstaller vodtool.spec)
+src-tauri/binaries/vodtool*
+!src-tauri/binaries/.gitkeep
 
 # Node / frontend build artifacts
 node_modules/

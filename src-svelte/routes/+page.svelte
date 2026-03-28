@@ -1,7 +1,10 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { onDestroy } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { open as openDialog } from "@tauri-apps/plugin-dialog";
+  import { onMount, onDestroy } from "svelte";
+  import { fly } from "svelte/transition";
 
   // ── types ────────────────────────────────────────────────────────────────────
 
@@ -41,6 +44,19 @@
   let errorMsg = $state<string | null>(null);
   let topics = $state<Topic[]>([]);
   let projectDir = $state<string>("");
+  let videoFileName = $state<string>("");
+
+  // ── animation state ───────────────────────────────────────────────────────────
+
+  const TITLE = "VODTOOL";
+  let titleChars = $state("");
+  let taglineVisible = $state(false);
+
+  const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let spinnerIdx = $state(0);
+
+  let displayMsg = $state("");
+  let copiedId = $state<string | null>(null);
 
   // ── event listeners (cleaned up on destroy) ───────────────────────────────────
 
@@ -59,6 +75,7 @@
           });
         } catch (err) {
           topics = [];
+          errorMsg = String(err);
         }
         screen = "results";
       }),
@@ -77,8 +94,53 @@
 
   registerListeners();
 
+  // ── title typewriter (import screen, runs once on mount) ──────────────────────
+
+  onMount(() => {
+    let i = 0;
+    let taglineTimer: ReturnType<typeof setTimeout> | null = null;
+    const iv = setInterval(() => {
+      titleChars = TITLE.slice(0, ++i);
+      if (i === TITLE.length) {
+        clearInterval(iv);
+        taglineTimer = setTimeout(() => {
+          taglineVisible = true;
+        }, 300);
+      }
+    }, 50);
+    return () => {
+      clearInterval(iv);
+      if (taglineTimer) clearTimeout(taglineTimer);
+    };
+  });
+
   onDestroy(() => {
     unlisteners.forEach((fn) => fn());
+  });
+
+  // ── braille spinner (processing screen) ───────────────────────────────────────
+
+  $effect(() => {
+    if (screen === "processing") {
+      const iv = setInterval(() => {
+        spinnerIdx = (spinnerIdx + 1) % SPINNER_FRAMES.length;
+      }, 80);
+      return () => clearInterval(iv);
+    }
+  });
+
+  // ── step message typewriter ───────────────────────────────────────────────────
+
+  $effect(() => {
+    const target = progress?.msg ?? "";
+    let i = 0;
+    displayMsg = "";
+    if (!target) return;
+    const iv = setInterval(() => {
+      displayMsg = target.slice(0, ++i);
+      if (i === target.length) clearInterval(iv);
+    }, 20);
+    return () => clearInterval(iv);
   });
 
   // ── handlers ──────────────────────────────────────────────────────────────────
@@ -86,6 +148,7 @@
   async function startPipeline(videoPath: string) {
     errorMsg = null;
     progress = null;
+    videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
     try {
       await invoke("start_pipeline", { videoPath });
@@ -95,17 +158,25 @@
     }
   }
 
-  function handleDrop(e: DragEvent) {
-    e.preventDefault();
-    dragOver = false;
-    const file = e.dataTransfer?.files[0];
-    if (file) startPipeline(file.path ?? (file as File & { path?: string }).path ?? "");
-  }
+  // Tauri native drag-drop — provides real filesystem paths.
+  getCurrentWindow().onDragDropEvent((e) => {
+    if (e.payload.type === "over") {
+      dragOver = true;
+    } else if (e.payload.type === "drop") {
+      dragOver = false;
+      const path = e.payload.paths?.[0];
+      if (path) startPipeline(path);
+    } else {
+      dragOver = false;
+    }
+  });
 
-  function handleFileInput(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file) startPipeline((file as File & { path?: string }).path ?? "");
+  async function browseFile() {
+    const path = await openDialog({
+      multiple: false,
+      filters: [{ name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "ts"] }],
+    });
+    if (typeof path === "string" && path) startPipeline(path);
   }
 
   async function cancelPipeline() {
@@ -118,26 +189,34 @@
     screen = "import";
     topics = [];
     projectDir = "";
+    videoFileName = "";
     progress = null;
     errorMsg = null;
+  }
+
+  async function copyTimestamp(topic: Topic) {
+    await navigator.clipboard.writeText(topic.duration_label);
+    copiedId = topic.topic_id;
+    setTimeout(() => {
+      copiedId = null;
+    }, 1500);
   }
 
   // ── derived ───────────────────────────────────────────────────────────────────
 
   const progressPct = $derived(progress ? Math.round(progress.pct * 100) : 0);
-  const progressMsg = $derived(progress?.msg ?? "Starting...");
   const progressStep = $derived(progress ? `${progress.step}/${progress.total}` : "");
 </script>
 
 <!-- ── Import screen ──────────────────────────────────────────────────────────── -->
 {#if screen === "import"}
   <main class="screen import-screen">
-    <h1 class="logo-title">VODTOOL</h1>
-    <p class="tagline">drop a stream. get topics.</p>
+    <h1 class="logo-title">{titleChars}</h1>
+    <p class="tagline" class:visible={taglineVisible}>drop a stream. get topics.</p>
 
     {#if errorMsg}
       <div class="error-banner">
-        <span class="error-icon">✗</span>
+        <span aria-hidden="true" class="error-icon">✗</span>
         {errorMsg}
         <button class="dismiss" onclick={() => (errorMsg = null)}>×</button>
       </div>
@@ -147,17 +226,15 @@
     <div
       class="drop-zone"
       class:drag-over={dragOver}
-      ondragover={(e) => { e.preventDefault(); dragOver = true; }}
-      ondragleave={() => (dragOver = false)}
-      ondrop={handleDrop}
+      role="region"
+      aria-label="Video drop zone — drag a video file here or press Enter to browse"
+      tabindex="0"
+      onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") browseFile(); }}
     >
-      <span class="drop-icon">▶</span>
+      <span class="drop-icon" aria-hidden="true">▶</span>
       <p class="drop-label">Drop video here</p>
       <p class="drop-sub">or</p>
-      <label class="file-btn">
-        Browse file
-        <input type="file" accept="video/*,.mp4,.mov,.mkv,.avi,.webm" onchange={handleFileInput} />
-      </label>
+      <button class="file-btn" onclick={browseFile}>Browse file</button>
     </div>
   </main>
 
@@ -165,14 +242,18 @@
 {:else if screen === "processing"}
   <main class="screen processing-screen">
     <h1 class="logo-title">VODTOOL</h1>
+    {#if videoFileName}
+      <p class="processing-file">processing: {videoFileName}</p>
+    {/if}
 
     <div class="progress-block">
+      <div class="spinner-line">
+        <span class="spinner">{SPINNER_FRAMES[spinnerIdx]}</span>
+        <span class="progress-msg">{displayMsg}</span>
+        <span class="progress-step">{progressStep}</span>
+      </div>
       <div class="progress-bar-track">
         <div class="progress-bar-fill" style="width: {progressPct}%"></div>
-      </div>
-      <div class="progress-meta">
-        <span class="progress-msg">{progressMsg}</span>
-        <span class="progress-step">{progressStep}</span>
       </div>
     </div>
 
@@ -184,24 +265,43 @@
   <main class="screen results-screen">
     <header class="results-header">
       <h1 class="logo-title">VODTOOL</h1>
-      <button class="back-btn" onclick={reset}>← New video</button>
+      <button class="back-btn" onclick={reset}>← new video</button>
     </header>
 
-    <p class="results-meta">{topics.length} topics found</p>
+    {#if errorMsg}
+      <div class="error-banner">
+        <span aria-hidden="true" class="error-icon">✗</span>
+        {errorMsg}
+        <button class="dismiss" onclick={() => (errorMsg = null)}>×</button>
+      </div>
+    {:else}
+      <p class="results-meta">{videoFileName ? `${videoFileName} — ` : ""}{topics.length} topics found</p>
+    {/if}
 
-    <ul class="topic-list">
-      {#each topics as topic (topic.topic_id)}
-        <li class="topic-card">
-          <div class="topic-top">
-            <span class="topic-id">{topic.topic_id}</span>
-            <span class="topic-duration">{topic.duration_label}</span>
-          </div>
-          <p class="topic-label">{topic.label}</p>
-          <p class="topic-summary">{topic.summary}</p>
-          <p class="topic-chunks">{topic.chunk_count} chunks</p>
-        </li>
-      {/each}
-    </ul>
+    {#if topics.length === 0 && !errorMsg}
+      <div class="empty-state">
+        <p class="empty-msg">no topics found.</p>
+        <p class="empty-sub">try a different file or a longer recording.</p>
+      </div>
+    {:else if topics.length > 0}
+      <ul class="topic-list">
+        {#each topics as topic, i (topic.topic_id)}
+          <li class="topic-card" in:fly={{ y: 6, duration: 200, delay: i * 60 }}>
+            <div class="topic-top">
+              <span class="topic-num">{String(i + 1).padStart(2, "0")}</span>
+              <span class="topic-duration">{topic.duration_label}</span>
+              <button
+                class="copy-btn"
+                onclick={() => copyTimestamp(topic)}
+                aria-label="Copy timestamp for {topic.label}"
+              >{copiedId === topic.topic_id ? "copied!" : "copy ↗"}</button>
+            </div>
+            <p class="topic-label">{topic.label}</p>
+            <p class="topic-summary">{topic.summary}</p>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </main>
 {/if}
 
@@ -232,6 +332,11 @@
     text-transform: uppercase;
     margin-bottom: 0.3rem;
   }
+  .logo-title::after {
+    content: "_";
+    animation: blink 1s step-end infinite;
+    color: #555;
+  }
 
   /* ── import screen ───────────────────────────────────────────────── */
   .import-screen { justify-content: center; gap: 1.2rem; }
@@ -242,7 +347,10 @@
     color: #666;
     text-transform: lowercase;
     margin-bottom: 1.5rem;
+    opacity: 0;
+    transition: opacity 0.3s;
   }
+  .tagline.visible { opacity: 1; }
 
   .error-banner {
     display: flex;
@@ -278,10 +386,14 @@
     gap: 0.6rem;
     cursor: default;
     transition: border-color 0.15s, background 0.15s;
+    animation: breathe 3s ease-in-out infinite;
+    outline: none;
   }
+  .drop-zone:focus-visible { box-shadow: 0 0 0 1px #666; }
   .drop-zone.drag-over {
     border-color: #e0e0e0;
     background: #111;
+    animation: none;
   }
   .drop-icon { font-size: 2.5rem; color: #444; }
   .drop-label { font-size: 1rem; color: #aaa; letter-spacing: 0.05em; }
@@ -296,13 +408,20 @@
     letter-spacing: 0.08em;
     color: #ccc;
     cursor: pointer;
+    background: none;
     transition: border-color 0.15s, color 0.15s;
   }
   .file-btn:hover { border-color: #e0e0e0; color: #fff; }
-  .file-btn input { display: none; }
 
   /* ── processing screen ───────────────────────────────────────────── */
-  .processing-screen { justify-content: center; gap: 2rem; }
+  .processing-screen { justify-content: center; gap: 1.5rem; }
+
+  .processing-file {
+    font-size: 0.8rem;
+    color: #555;
+    letter-spacing: 0.08em;
+    margin-top: -0.8rem;
+  }
 
   .progress-block {
     max-width: 480px;
@@ -311,6 +430,20 @@
     flex-direction: column;
     gap: 0.6rem;
   }
+
+  .spinner-line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: #888;
+    letter-spacing: 0.04em;
+    min-height: 1.2em;
+  }
+  .spinner { color: #aaa; }
+  .progress-msg { flex: 1; }
+  .progress-step { color: #555; font-size: 0.75rem; white-space: nowrap; }
+
   .progress-bar-track {
     width: 100%;
     height: 4px;
@@ -320,13 +453,6 @@
     height: 100%;
     background: #e0e0e0;
     transition: width 0.3s ease;
-  }
-  .progress-meta {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.8rem;
-    color: #666;
-    letter-spacing: 0.05em;
   }
 
   .cancel-btn {
@@ -364,6 +490,15 @@
 
   .results-meta { font-size: 0.8rem; color: #444; letter-spacing: 0.08em; }
 
+  .empty-state {
+    padding: 2rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .empty-msg { font-size: 0.9rem; color: #666; }
+  .empty-sub { font-size: 0.8rem; color: #444; }
+
   .topic-list { list-style: none; display: flex; flex-direction: column; gap: 0.6rem; }
 
   .topic-card {
@@ -378,12 +513,33 @@
 
   .topic-top {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 0.75rem;
   }
-  .topic-id { font-size: 0.7rem; color: #444; letter-spacing: 0.1em; }
-  .topic-duration { font-size: 0.75rem; color: #555; }
+  .topic-num { font-size: 0.7rem; color: #444; letter-spacing: 0.1em; }
+  .topic-duration { font-size: 0.75rem; color: #555; flex: 1; }
+  .copy-btn {
+    font-family: inherit;
+    font-size: 0.75rem;
+    color: #555;
+    background: none;
+    border: none;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+    padding: 0;
+    transition: color 0.15s;
+  }
+  .copy-btn:hover { color: #ccc; }
   .topic-label { font-size: 1rem; color: #e0e0e0; font-weight: 600; }
   .topic-summary { font-size: 0.82rem; color: #888; line-height: 1.4; }
-  .topic-chunks { font-size: 0.7rem; color: #444; margin-top: 0.2rem; }
+
+  /* ── animations ──────────────────────────────────────────────────── */
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  @keyframes breathe {
+    0%, 100% { border-color: #222; }
+    50% { border-color: #444; }
+  }
 </style>
