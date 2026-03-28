@@ -10,14 +10,62 @@
 
 # VodTool
 
-A transcript-first CLI tool for content creators. Takes a long stream, finds the topics, generates cut plans to export focused videos.
+Guided VOD editing — AI maps narrative beats (hook, build, peak, resolution) on your stream's timeline so you see the terrain before you cut.
+
+## How It Works
+
+VodTool runs a 3-step pipeline on any stream VOD:
+
+```
+ingest → transcribe → detect narrative beats
+```
+
+1. **Ingest** — downloads the video (Twitch URL or local file), extracts audio
+2. **Transcribe** — sends audio to Groq Whisper (fast, free tier: ~2h/day)
+3. **Detect beats** — sends the full transcript to Claude in a single call, gets back topics + narrative beats (hook/build/peak/resolution) with timestamps and confidence scores
+
+The output is a `beats.json` file that maps the narrative structure of your stream.
+
+## Two Ways to Use It
+
+### Desktop App (Tauri)
+
+Paste a Twitch VOD link or drop a video file. The app runs the pipeline and shows an interactive beat timeline with click-to-seek video playback.
+
+```bash
+# Build and run the desktop app
+cd src-tauri && cargo tauri dev
+```
+
+### CLI
+
+```bash
+# Full beat detection pipeline — one command
+vodtool beats path/to/video.mp4
+vodtool beats https://twitch.tv/videos/<id>
+
+# With language hint
+vodtool beats path/to/video.mp4 --language fr
+
+# JSON progress output (for Tauri IPC)
+vodtool beats path/to/video.mp4 --json-progress
+```
+
+### Standalone Beat Viewer (HTML)
+
+For paywalled VODs or local OBS recordings — no install required:
+
+1. Open `tools/beat-viewer.html` in any browser
+2. Load your video file + paste the `beats.json` output
+3. Click beats to seek, hover for details
 
 ## Requirements
 
 - Python 3.9+
 - `ffmpeg` installed and in PATH
-- `OPENAI_API_KEY` — for transcription (Whisper) and embeddings
-- `ANTHROPIC_API_KEY` — for LLM topic detection (optional if using Ollama)
+- `yt-dlp` installed and in PATH (for Twitch VOD downloads)
+- `GROQ_API_KEY` — for transcription ([free at console.groq.com](https://console.groq.com))
+- `ANTHROPIC_API_KEY` — for beat detection (Claude Sonnet)
 
 ## Installation
 
@@ -30,80 +78,93 @@ pip install -e .
 
 Copy `.env.example` to `.env` and fill in your API keys.
 
-## Quick Start
+## Beat Detection Output
+
+The `beats.json` schema:
+
+```json
+{
+  "beats": [
+    {
+      "topic_id": "topic_0001",
+      "topic_label": "Rogue noir dans HP",
+      "beats": [
+        {
+          "type": "hook",
+          "start_s": 912,
+          "end_s": 945,
+          "confidence": 0.91,
+          "label": "Hot take: casting Rogue noir"
+        },
+        {
+          "type": "peak",
+          "start_s": 945,
+          "end_s": 1650,
+          "confidence": 0.85,
+          "label": "Main argument: racisme et adaptation"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Beat types:**
+- **hook** — the most attention-grabbing moment (where a YouTube video should start)
+- **build** — context and setup that gives the hook meaning
+- **peak** — the highest-value segment, the meat of the topic
+- **resolution** — wind-down, conclusions, transition to next topic
+
+Not every topic has all 4 types. A short tangent might only have a hook and peak.
+
+## API Proxy (for zero-friction distribution)
+
+A Cloudflare Worker proxy (`cloudflare-worker/`) lets you distribute the app without requiring users to configure API keys. The proxy adds your keys and forwards requests.
 
 ```bash
-# Full pipeline — one command (uses Anthropic by default, falls back to Ollama)
+cd cloudflare-worker
+
+# Set up local dev
+echo "GROQ_API_KEY=your-key" > .dev.vars
+echo "ANTHROPIC_API_KEY=your-key" >> .dev.vars
+
+# Run locally at http://localhost:8787
+npx wrangler dev
+
+# Deploy to production
+npx wrangler deploy
+wrangler secret put GROQ_API_KEY
+wrangler secret put ANTHROPIC_API_KEY
+```
+
+## Old Pipeline (topic detection only)
+
+The original topic detection pipeline is still available for power users:
+
+```bash
+# 5-step pipeline: ingest → transcribe → chunks → embed → llm-topics
 vodtool pipeline path/to/video.mp4
 
-# Twitch VOD
-vodtool pipeline https://twitch.tv/videos/<id>
-
-# With language hint
-vodtool pipeline path/to/video.mp4 --language fr
-
-# Force a specific LLM provider
-vodtool pipeline path/to/video.mp4 --provider anthropic
-vodtool pipeline path/to/video.mp4 --provider ollama --model qwen2.5:3b
-```
-
-The pipeline runs 5 steps: **ingest → transcribe → chunks → embed → llm-topics**.
-The LLM decides the number of topics naturally — no preset needed.
-
-## Step-by-Step
-
-```bash
-# 1. Import video (or Twitch URL) and extract audio
-vodtool ingest path/to/video.mp4
-vodtool ingest https://twitch.tv/videos/<id>
-
-# 2. Transcribe (Groq or OpenAI Whisper, auto-detects language)
+# Individual steps
 vodtool transcribe projects/<id>
-vodtool transcribe projects/<id> --language fr
-vodtool transcribe projects/<id> --provider openai --model whisper-1
-
-# 3. Split transcript into semantic chunks
 vodtool chunks projects/<id>
-
-# 4. Generate embeddings
 vodtool embed projects/<id>
-
-# 5. Detect topics with LLM (tries Ollama first, falls back to Anthropic)
 vodtool llm-topics projects/<id>
-vodtool llm-topics projects/<id> --provider anthropic
-vodtool llm-topics projects/<id> --provider ollama --model qwen2.5:3b
-vodtool llm-topics projects/<id> --max-topics 5   # cap if needed
-```
-
-For Ollama: `ollama pull qwen2.5:3b` (one-time, ~2GB).
-
-## Inspecting Results
-
-```bash
-# List all topics with labels and durations
 vodtool list-topics projects/<id>
-
-# Chronological topic timeline
 vodtool show-topics projects/<id>
-
-# Deep dive into a topic
-vodtool inspect-topic projects/<id> topic_0001
-
-# Compare Anthropic vs Ollama side-by-side
-vodtool compare-llm projects/<id>
-```
-
-Source options for `list-topics` and `cutplan`: `--source auto|llm|labeled|basic` (auto prefers LLM topics).
-
-## Export
-
-```bash
-# Generate a cut plan for a topic
 vodtool cutplan projects/<id> --topic topic_0001
-
-# Export the video
 vodtool export projects/<id>
 ```
+
+## Cost
+
+| VOD length | Transcription (Groq) | Beat detection (Claude) | Total |
+|---|---|---|---|
+| 1 hour | Free | ~$0.05-0.10 | ~$0.10 |
+| 4 hours | Free | ~$0.30-0.60 | ~$0.60 |
+| 6 hours | Free | ~$0.50-1.00 | ~$1.00 |
+
+Groq Whisper free tier covers ~2 hours of audio per day.
 
 ## License
 
