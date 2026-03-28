@@ -58,22 +58,21 @@
 
   let targetPct = $state(0);
   let displayPct = $state(0);
+  let hasDownloadPct = $state(false); // true when download_pct events are flowing
 
   $effect(() => {
     if (screen === "processing") {
       const iv = setInterval(() => {
         if (displayPct < targetPct) {
-          // Catch up to the real target quickly
+          // Catch up to the real target
           displayPct = Math.min(displayPct + 2, targetPct);
-        } else if (displayPct < 99) {
-          // Slow crawl past the target (shows activity)
-          // Cap at next step boundary - 2%, never exceed 99%
+        } else if (!hasDownloadPct && displayPct < 99) {
+          // Slow crawl only when there's no real-time progress source
+          // (steps 2 and 3 have no sub-events, so crawl is useful there)
           const currentStep = progress?.step ?? 0;
           const total = progress?.total ?? 3;
-          const cap = Math.min(
-            Math.round(((currentStep + 1) / total) * 100) - 2,
-            99,
-          );
+          const stepEnd = Math.round((currentStep / total) * 100);
+          const cap = Math.min(stepEnd + Math.round((1 / total) * 100) - 2, 99);
           if (displayPct < cap) {
             displayPct = Math.min(displayPct + 0.5, cap);
           }
@@ -83,6 +82,7 @@
     } else {
       displayPct = 0;
       targetPct = 0;
+      hasDownloadPct = false;
     }
   });
 
@@ -136,22 +136,24 @@
   function registerListeners() {
     Promise.all([
       listen<ProgressMsg>("pipeline-progress", (e) => {
-        // For download sub-events, update progress without adding log lines
+        // Download sub-events: update progress bar + show download %
         if (e.payload.download_pct != null) {
+          hasDownloadPct = true;
           progress = e.payload;
-          // Map download % into step 1's slice of the global bar
           const total = e.payload.total;
           targetPct = Math.round((e.payload.download_pct / 100) * (1 / total) * 100);
+          currentWaitMsg = `downloading: ${e.payload.download_pct}%`;
           return;
         }
 
+        // Regular step event
         const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
         if (processLog.at(-1) !== entry) {
           processLog = [...processLog, entry];
         }
         progress = e.payload;
+        hasDownloadPct = false; // new step — no longer in download mode
         targetPct = Math.round(e.payload.pct * 100);
-        // Reset wait message rotation for new step
         waitMsgIdx = 0;
         const msgs = WAIT_MSGS[e.payload.step] ?? WAIT_MSGS[1];
         currentWaitMsg = msgs[0];
@@ -197,6 +199,7 @@
     processLog = [];
     targetPct = 0;
     displayPct = 0;
+    hasDownloadPct = false;
     waitMsgIdx = 0;
     videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
