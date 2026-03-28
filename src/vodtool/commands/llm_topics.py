@@ -383,6 +383,7 @@ def llm_topics(
             return None
 
     if llm_result is None:
+        _last_error = "Failed to get LLM response"
         console.print("[red]Error: Failed to get LLM response[/red]")
         return None
 
@@ -395,6 +396,7 @@ def llm_topics(
     validation = validate_topic_map(topic_map, chunks)
 
     if validation["errors"]:
+        _last_error = f"Topic map validation failed: {'; '.join(validation['errors'])}"
         console.print("[red]✗ Topic map validation failed:[/red]")
         for error in validation["errors"]:
             console.print(f"  [red]• {error}[/red]")
@@ -409,6 +411,7 @@ def llm_topics(
     console.print("[cyan]Saving topic map...[/cyan]")
 
     if not safe_write_json(output_path, topic_map):
+        _last_error = "Failed to write topic_map_llm.json"
         return None
 
     logger.info(f"Saved topic_map_llm.json: {output_path}")

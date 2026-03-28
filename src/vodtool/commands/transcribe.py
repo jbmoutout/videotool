@@ -113,6 +113,7 @@ def transcribe_audio(
             return None
 
         if not safe_write_json(transcript_raw_path, result):
+            _last_error = "Failed to write transcript_raw.json"
             return None
         logger.info(f"Saved transcript_raw.json: {transcript_raw_path}")
 
