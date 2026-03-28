@@ -74,6 +74,10 @@ RULES:
 - The hook is NOT always at the beginning. Often the most interesting
   moment is in the middle.
 - Beats can overlap (a hook can also be the start of a peak).
+- CRITICAL: Beats must tile the entire topic with NO GAPS. Every second
+  of the topic must belong to a beat. If a topic runs from 400s to 900s,
+  the beats must cover 400s-900s continuously. A beat's end_s must equal
+  the next beat's start_s within the same topic.
 - Return timestamps as seconds from stream start.
 - Include a confidence score (0.0-1.0) for each beat.
 - Include a short label describing what happens in each beat.
