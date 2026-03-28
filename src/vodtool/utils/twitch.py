@@ -1,5 +1,6 @@
 """Twitch VOD and chat downloader utilities."""
 
+import contextlib
 import json
 import logging
 import re
@@ -33,6 +34,7 @@ def check_streamlink() -> bool:
             ["streamlink", "--version"],
             capture_output=True,
             text=True,
+            timeout=10,
         )
         return result.returncode == 0
     except FileNotFoundError:
@@ -53,10 +55,15 @@ def download_vod(url: str, output_path: Path, quality: str = "worst") -> bool:
         True on success, False on failure
     """
     logger.info(f"Downloading VOD: {url} (quality: {quality})")
-    result = subprocess.run(
-        ["streamlink", url, quality, "--output", str(output_path)],
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["streamlink", url, quality, "--output", str(output_path)],
+            text=True,
+            timeout=7200,  # 2 hours — long VODs are legitimate
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("streamlink timed out after 2 hours")
+        return False
     if result.returncode != 0:
         logger.error("streamlink failed")
         return False
@@ -89,7 +96,7 @@ def download_vod_with_progress(
     proc = subprocess.Popen(
         ["streamlink", url, quality, "--output", str(output_path)],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
 
     # Estimate expected file size from quality:
@@ -103,12 +110,6 @@ def download_vod_with_progress(
         time.sleep(2)
         if output_path.exists():
             current_size = output_path.stat().st_size
-            if estimated_total == 0 and current_size > 1_000_000:
-                # After first MB, read streamlink stderr for any duration hints
-                # Otherwise estimate: assume file grows ~linearly, estimate
-                # total from growth rate over the first 10s
-                pass
-
             if estimated_total == 0 and current_size > 1_000_000:
                 # After 5MB, estimate total from growth rate
                 # Assume we're ~10s in, typical VOD is 1-4 hours
@@ -128,7 +129,13 @@ def download_vod_with_progress(
             last_size = current_size
 
     if proc.returncode != 0:
-        logger.error("streamlink failed")
+        stderr_output = ""
+        if proc.stderr:
+            with contextlib.suppress(Exception):
+                stderr_output = proc.stderr.read().decode(errors="replace")[:500]
+        logger.error(
+            f"streamlink failed: {stderr_output}" if stderr_output else "streamlink failed",
+        )
         return False
 
     if progress_callback:
