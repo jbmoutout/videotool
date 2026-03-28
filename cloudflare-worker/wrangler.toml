@@ -1,0 +1,12 @@
+name = "vodtool-api"
+main = "src/worker.js"
+compatibility_date = "2024-12-01"
+
+[vars]
+# Set these via `wrangler secret put GROQ_API_KEY` and `wrangler secret put ANTHROPIC_API_KEY`
+# Never commit actual keys here.
+RATE_LIMIT_PER_DAY = "10"
+
+# Analytics Engine binding (optional — enable in Cloudflare dashboard first)
+# [[analytics_engine_datasets]]
+# binding = "ANALYTICS"
