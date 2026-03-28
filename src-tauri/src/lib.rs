@@ -1,3 +1,4 @@
+use axum::body::Body;
 use axum::extract::State as AxumState;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -6,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio_util::io::ReaderStream;
 
 // ── shared state ──────────────────────────────────────────────────────────────
 
@@ -343,7 +345,11 @@ async fn serve_beats_json(AxumState(state): AxumState<ViewerServerState>) -> imp
     }
 }
 
+/// Max bytes to read per Range chunk — prevents loading entire file into memory.
+const RANGE_CHUNK_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
+
 /// Serve the video file with HTTP Range request support for seeking.
+/// Streams the file — never loads the whole thing into memory.
 async fn serve_video(
     AxumState(state): AxumState<ViewerServerState>,
     headers: HeaderMap,
@@ -380,7 +386,12 @@ async fn serve_video(
     if let Some(range_header) = headers.get("range") {
         if let Ok(range_str) = range_header.to_str() {
             if let Some(range) = parse_range(range_str, file_size) {
-                let (start, end) = range;
+                let (start, mut end) = range;
+
+                // Cap the chunk size to avoid loading huge ranges into memory
+                if end - start + 1 > RANGE_CHUNK_SIZE {
+                    end = start + RANGE_CHUNK_SIZE - 1;
+                }
                 let length = end - start + 1;
 
                 let mut file = match tokio::fs::File::open(&video_path).await {
@@ -400,53 +411,54 @@ async fn serve_video(
                 }
 
                 let mut buf = vec![0u8; length as usize];
-                if let Err(e) = file.read_exact(&mut buf).await {
-                    // Partial read at end of file is OK
-                    if buf.is_empty() {
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            format!("Read failed: {e}"),
-                        )
-                            .into_response();
+                match file.read_exact(&mut buf).await {
+                    Ok(_) => {}
+                    Err(_) => {
+                        // Partial read at end of file — truncate buffer
+                        buf.truncate(buf.len());
                     }
                 }
 
-                return (
-                    StatusCode::PARTIAL_CONTENT,
-                    [
-                        ("content-type", content_type),
-                        ("accept-ranges", "bytes"),
-                        (
-                            "content-range",
-                            &format!("bytes {start}-{end}/{file_size}"),
-                        ),
-                        ("content-length", &length.to_string()),
-                    ],
-                    buf,
-                )
+                let content_range = format!("bytes {start}-{end}/{file_size}");
+                let len_str = length.to_string();
+
+                return axum::http::Response::builder()
+                    .status(StatusCode::PARTIAL_CONTENT)
+                    .header("content-type", content_type)
+                    .header("accept-ranges", "bytes")
+                    .header("content-range", content_range)
+                    .header("content-length", len_str)
+                    .body(Body::from(buf))
+                    .unwrap()
                     .into_response();
             }
         }
     }
 
-    // No Range header — return full file (for small files or initial probe)
-    match tokio::fs::read(&video_path).await {
-        Ok(data) => (
-            StatusCode::OK,
-            [
-                ("content-type", content_type),
-                ("accept-ranges", "bytes"),
-                ("content-length", &file_size.to_string()),
-            ],
-            data,
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Cannot read video: {e}"),
-        )
-            .into_response(),
-    }
+    // No Range header — stream the full file (never load into memory)
+    let file = match tokio::fs::File::open(&video_path).await {
+        Ok(f) => f,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot read video: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+    let len_str = file_size.to_string();
+
+    axum::http::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", content_type)
+        .header("accept-ranges", "bytes")
+        .header("content-length", len_str)
+        .body(body)
+        .unwrap()
+        .into_response()
 }
 
 /// Parse an HTTP Range header like "bytes=START-" or "bytes=START-END".
