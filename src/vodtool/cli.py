@@ -8,29 +8,35 @@ import typer
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv()
 except ImportError:
     pass
 from rich.console import Console
 
 from vodtool import __version__
-from vodtool.commands.chunks import create_chunks, get_last_error as get_chunks_error
+from vodtool.commands.chunks import create_chunks
+from vodtool.commands.chunks import get_last_error as get_chunks_error
 from vodtool.commands.cutplan import generate_cutplan
 from vodtool.commands.diarize import diarize_command
 from vodtool.commands.diarize_review import diarize_review_command
-from vodtool.commands.embed import embed_chunks, get_last_error as get_embed_error
+from vodtool.commands.embed import embed_chunks
+from vodtool.commands.embed import get_last_error as get_embed_error
 from vodtool.commands.explain_chunk import explain_chunk_command
 from vodtool.commands.export import export_video
-from vodtool.commands.ingest import get_last_error as get_ingest_error, ingest_video
+from vodtool.commands.ingest import get_last_error as get_ingest_error
+from vodtool.commands.ingest import ingest_video
 from vodtool.commands.inspect_topic import inspect_topic_command
 from vodtool.commands.label_topics import label_topics_command
 from vodtool.commands.list_topics import list_topics_command
-from vodtool.commands.llm_topics import get_last_error as get_llm_error, llm_topics
+from vodtool.commands.llm_topics import get_last_error as get_llm_error
+from vodtool.commands.llm_topics import llm_topics
 from vodtool.commands.merge_topics import merge_topics_command
 from vodtool.commands.segment_topics import segment_topics
 from vodtool.commands.show_topics import show_topics_command
 from vodtool.commands.topics import cluster_topics
-from vodtool.commands.transcribe import get_last_error as get_transcribe_error, transcribe_audio
+from vodtool.commands.transcribe import get_last_error as get_transcribe_error
+from vodtool.commands.transcribe import transcribe_audio
 
 app = typer.Typer(
     name="vodtool",
@@ -98,7 +104,16 @@ def ingest(
 @app.command()
 def transcribe(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
-    model: str = typer.Option("small", "--model", help="Whisper model size"),
+    provider: str = typer.Option(
+        "groq",
+        "--provider",
+        help="Transcription provider: 'groq' (default, fast) or 'openai'",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        help="Model override (e.g. 'whisper-large-v3' for Groq, 'whisper-1' for OpenAI)",
+    ),
     language: Optional[str] = typer.Option(
         None,
         "--language",
@@ -107,11 +122,12 @@ def transcribe(
     force: bool = typer.Option(False, "--force", help="Force re-transcription"),
 ):
     """
-    Transcribe audio using OpenAI Whisper.
+    Transcribe audio using Groq or OpenAI Whisper API.
 
     Generates timestamped transcript from project audio.
+    Default provider is Groq (whisper-large-v3-turbo) — ~10-20x faster than OpenAI.
     """
-    transcript_path = transcribe_audio(project_path, model, force, language)
+    transcript_path = transcribe_audio(project_path, model, force, language, provider)
     if transcript_path is None:
         raise typer.Exit(code=1)
 
@@ -274,20 +290,35 @@ def pipeline(
         "--quality",
         help="Video quality for Twitch downloads (default: 'worst', use 'best' for export quality)",
     ),
-    whisper_model: str = typer.Option("whisper-1", "--whisper-model", help="Whisper model"),
+    transcription_provider: str = typer.Option(
+        "groq",
+        "--transcription-provider",
+        help="Transcription provider: 'groq' (default, fast) or 'openai'",
+    ),
+    whisper_model: Optional[str] = typer.Option(
+        None,
+        "--whisper-model",
+        help="Transcription model override (default: whisper-large-v3-turbo for groq, whisper-1 for openai)",
+    ),
     language: Optional[str] = typer.Option(
-        None, "--language", help="Language code (auto-detect if not specified)",
+        None,
+        "--language",
+        help="Language code (auto-detect if not specified)",
     ),
     max_topics: Optional[int] = typer.Option(
-        None, "--max-topics", help="Cap on topics (default: LLM decides naturally)",
+        None,
+        "--max-topics",
+        help="Cap on topics (default: LLM decides naturally)",
     ),
     provider: str = typer.Option(
-        "auto",
+        "anthropic",
         "--provider",
-        help="LLM provider: 'anthropic', 'ollama', or 'auto' (tries ollama first)",
+        help="LLM provider: 'anthropic' or 'ollama'",
     ),
     model: Optional[str] = typer.Option(
-        None, "--model", help="Model override (e.g. 'qwen2.5:3b' for Ollama)",
+        None,
+        "--model",
+        help="Model override (e.g. 'qwen2.5:3b' for Ollama)",
     ),
     json_progress: bool = typer.Option(
         False, "--json-progress", help="Emit JSON progress lines (for Tauri IPC)"
@@ -308,7 +339,9 @@ def pipeline(
     def progress(step: int, msg: str):
         if json_progress:
             sys.stdout.write(
-                _json.dumps({"step": step, "total": total, "pct": round(step / total, 3), "msg": msg})
+                _json.dumps(
+                    {"step": step, "total": total, "pct": round(step / total, 3), "msg": msg}
+                )
                 + "\n"
             )
             sys.stdout.flush()
@@ -329,7 +362,9 @@ def pipeline(
 
     # Step 2: Transcribe
     progress(2, "Transcribing audio...")
-    transcript_path = transcribe_audio(project_dir, whisper_model, False, language)
+    transcript_path = transcribe_audio(
+        project_dir, whisper_model, False, language, transcription_provider
+    )
     if transcript_path is None:
         fail(2, get_transcribe_error() or "Transcription failed")
 
@@ -346,7 +381,7 @@ def pipeline(
         fail(4, get_embed_error() or "Embedding failed")
 
     # Step 5: LLM topic detection (replaces segment-topics + topics + label-topics)
-    progress(5, "Detecting topics with LLM...")
+    progress(5, "Detecting topics...")
     topic_map_path = llm_topics(project_dir, max_topics, provider, model)
     if topic_map_path is None:
         fail(5, get_llm_error() or "LLM topic detection failed")
@@ -388,7 +423,9 @@ def inspect_topic(
 def show_topics(
     project_path: Path = typer.Argument(..., help="Path to project directory"),
     include_misc: bool = typer.Option(
-        False, "--include-misc", help="Include MISC bucket topics (short/singleton)",
+        False,
+        "--include-misc",
+        help="Include MISC bucket topics (short/singleton)",
     ),
 ):
     """

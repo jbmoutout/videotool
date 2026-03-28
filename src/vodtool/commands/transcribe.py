@@ -1,4 +1,4 @@
-"""Transcription command for vodtool using OpenAI Whisper API."""
+"""Transcription command for vodtool."""
 
 import logging
 from pathlib import Path
@@ -6,7 +6,6 @@ from typing import Optional
 
 from rich.console import Console
 
-from vodtool.transcription import OpenAITranscriptionProvider
 from vodtool.utils.file_utils import project_lock, safe_write_json
 from vodtool.utils.validation import validate_project_path
 
@@ -23,21 +22,20 @@ def get_last_error() -> Optional[str]:
 
 def transcribe_audio(
     project_path: Path,
-    model_name: str = "whisper-1",
+    model_name: Optional[str] = None,
     force: bool = False,
     language: Optional[str] = None,
+    provider: str = "groq",
 ) -> Optional[Path]:
     """
-    Transcribe audio using the OpenAI Whisper API.
-
-    Files larger than 25MB are automatically chunked and stitched with correct
-    timestamp offsets.
+    Transcribe audio using the specified provider.
 
     Args:
         project_path: Path to the project directory
-        model_name: Whisper model (currently only "whisper-1" is supported by the API)
+        model_name: Model override. Defaults: groq→whisper-large-v3-turbo, openai→whisper-1
         force: Force re-transcription even if transcript exists
         language: BCP-47 language code (e.g. "fr"). Auto-detect if None.
+        provider: Transcription provider — "groq" (default, fast) or "openai"
 
     Returns:
         Path to transcript_raw.json, or None on failure
@@ -67,14 +65,27 @@ def transcribe_audio(
         return transcript_raw_path
 
     try:
-        provider = OpenAITranscriptionProvider(model=model_name)
+        if provider == "groq":
+            from vodtool.transcription import GroqTranscriptionProvider
+            transcription_provider = GroqTranscriptionProvider(
+                model=model_name or "whisper-large-v3-turbo"
+            )
+        elif provider == "openai":
+            from vodtool.transcription import OpenAITranscriptionProvider
+            transcription_provider = OpenAITranscriptionProvider(
+                model=model_name or "whisper-1"
+            )
+        else:
+            _last_error = f"Unknown transcription provider: {provider!r}. Use 'groq' or 'openai'."
+            console.print(f"[red]Error: {_last_error}[/red]")
+            return None
     except (ValueError, ImportError) as e:
         _last_error = str(e)
         console.print(f"[red]Error: {e}[/red]")
         return None
 
     with project_lock(project_path):
-        console.print("[cyan]Transcribing audio...[/cyan]")
+        console.print(f"[cyan]Transcribing audio (provider: {provider})...[/cyan]")
         console.print(f"[dim]Audio file: {audio_path}[/dim]")
         if language:
             console.print(f"[dim]Language: {language}[/dim]")
@@ -86,7 +97,7 @@ def transcribe_audio(
             )
 
         try:
-            result = provider.transcribe(audio_path, language=language)
+            result = transcription_provider.transcribe(audio_path, language=language)
             logger.info("Transcription complete")
         except FileNotFoundError as e:
             _last_error = str(e)
@@ -116,6 +127,7 @@ def transcribe_audio(
         if segments:
             duration = segments[-1]["end"]
             console.print("\n[green]✓ Transcription complete![/green]")
+            console.print(f"[bold]Provider:[/bold] {provider} ({result['model']})")
             console.print(f"[bold]Language:[/bold] {result['language']}")
             console.print(f"[bold]Segments:[/bold] {len(segments)}")
             console.print(f"[bold]Duration:[/bold] {duration:.1f}s ({duration / 60:.1f} min)")

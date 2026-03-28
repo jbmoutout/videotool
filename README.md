@@ -57,9 +57,10 @@ The LLM decides the number of topics naturally — no preset needed.
 vodtool ingest path/to/video.mp4
 vodtool ingest https://twitch.tv/videos/<id>
 
-# 2. Transcribe (OpenAI Whisper, auto-detects language)
+# 2. Transcribe (Groq or OpenAI Whisper, auto-detects language)
 vodtool transcribe projects/<id>
 vodtool transcribe projects/<id> --language fr
+vodtool transcribe projects/<id> --provider openai --model whisper-1
 
 # 3. Split transcript into semantic chunks
 vodtool chunks projects/<id>
