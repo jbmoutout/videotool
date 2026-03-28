@@ -71,7 +71,13 @@ const LABEL_W = 140;
 document.getElementById("new-btn").addEventListener("click", () => {
   const params = new URLSearchParams(window.location.search);
   const origin = params.get("origin") || "http://localhost:1420";
-  window.location.href = origin;
+  // Only allow http(s) URLs to prevent javascript: or data: redirects
+  try {
+    const url = new URL(origin);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      window.location.href = origin;
+    }
+  } catch (_) { /* invalid URL — ignore */ }
 });
 
 // ── Auto-load from server ─────────────────────────────────────────
@@ -151,16 +157,26 @@ function render() {
   }
 }
 
-// ── Playhead sync ──────────────────────────────────────────────────
+// ── Playhead sync (only runs while playing to save battery) ────────
+let rafId = null;
 function updatePlayhead() {
   if (duration > 0) {
     const timelineW = timeline.clientWidth;
     const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
     playhead.style.left = x + "px";
   }
-  requestAnimationFrame(updatePlayhead);
+  rafId = requestAnimationFrame(updatePlayhead);
 }
-requestAnimationFrame(updatePlayhead);
+function syncPlayhead() {
+  if (duration > 0) {
+    const timelineW = timeline.clientWidth;
+    const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
+    playhead.style.left = x + "px";
+  }
+}
+player.addEventListener("play", () => { if (!rafId) updatePlayhead(); });
+player.addEventListener("pause", () => { if (rafId) { cancelAnimationFrame(rafId); rafId = null; } syncPlayhead(); });
+player.addEventListener("seeked", syncPlayhead);
 
 // ── Click-to-seek on timeline background ───────────────────────────
 timeline.addEventListener("click", (e) => {
@@ -174,6 +190,14 @@ timeline.addEventListener("click", (e) => {
 
 // ── Resize handling ────────────────────────────────────────────────
 window.addEventListener("resize", () => { if (beats.length) render(); });
+
+// ── Spacebar play/pause ───────────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && e.target === document.body) {
+    e.preventDefault();
+    if (player.paused) player.play(); else player.pause();
+  }
+});
 
 // ── Utils ──────────────────────────────────────────────────────────
 function fmtTime(s) {

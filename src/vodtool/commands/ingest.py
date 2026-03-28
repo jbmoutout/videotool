@@ -130,10 +130,13 @@ def extract_audio(
 
     cmd = [
         ffmpeg_path,
-        "-i", str(video_path),
-        "-ac", "1",       # mono
-        "-ar", "16000",   # 16kHz sample rate
-        "-y",             # overwrite output
+        "-i",
+        str(video_path),
+        "-ac",
+        "1",  # mono
+        "-ar",
+        "16000",  # 16kHz sample rate
+        "-y",  # overwrite output
     ]
     if progress_callback and duration and duration > 0:
         # -progress pipe:1 makes ffmpeg write progress to stdout
@@ -184,7 +187,13 @@ def extract_audio(
         return False
 
 
-def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "worst", download_progress_callback=None, status_callback=None) -> Optional[Path]:
+def ingest_video(
+    input_video_path,
+    ffmpeg_path: str = "ffmpeg",
+    quality: str = "worst",
+    download_progress_callback=None,
+    status_callback=None,
+) -> Optional[Path]:
     """
     Ingest a video file or Twitch VOD URL and create a new project.
 
@@ -219,8 +228,11 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
 
         if download_progress_callback:
             from vodtool.utils.twitch import download_vod_with_progress
+
             success = download_vod_with_progress(
-                twitch_url, tmp_video, quality=quality,
+                twitch_url,
+                tmp_video,
+                quality=quality,
                 progress_callback=download_progress_callback,
             )
         else:
@@ -306,19 +318,49 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
         return None
 
     # Move or link source video (avoid duplicating multi-GB files)
-    source_extension = input_video_path.suffix
-    source_filename = f"source{source_extension}"
-    source_path = project_dir / source_filename
+    source_path = project_dir / "source.mp4"
 
     try:
         if tmp_dir:
-            # Twitch download: move from temp dir (no copy needed)
-            console.print("[cyan]Moving downloaded video...[/cyan]")
-            shutil.move(str(input_video_path), str(source_path))
+            # Twitch download: streamlink outputs raw MPEG-TS (HLS segments).
+            # Browsers can't play TS natively, so remux to proper MP4.
+            console.print("[cyan]Remuxing to MP4...[/cyan]")
+            remuxed_path = project_dir / "source.mp4"
+            remux_result = subprocess.run(
+                [
+                    ffmpeg_path,
+                    "-i",
+                    str(input_video_path),
+                    "-c:v",
+                    "copy",
+                    "-c:a",
+                    "aac",
+                    "-y",
+                    str(remuxed_path),
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if remux_result.returncode != 0:
+                logger.error(f"ffmpeg remux failed: {remux_result.stderr}")
+                _last_error = "Video remux to MP4 failed"
+                console.print("[red]Error: Video remux failed[/red]")
+                shutil.rmtree(project_dir, ignore_errors=True)
+                return None
+            source_path = remuxed_path
         else:
-            # Local file: symlink to avoid duplicating large files
+            # Local file: hardlink to avoid duplicating multi-GB files.
+            # Hardlinks survive if the original path is renamed/moved (unlike symlinks).
+            # Falls back to symlink if hardlink fails (cross-device or unsupported FS).
+            source_extension = input_video_path.suffix
+            source_filename = f"source{source_extension}"
+            source_path = project_dir / source_filename
             console.print("[cyan]Linking source video...[/cyan]")
-            source_path.symlink_to(input_video_path.resolve())
+            try:
+                source_path.hardlink_to(input_video_path.resolve())
+            except (OSError, NotImplementedError):
+                source_path.symlink_to(input_video_path.resolve())
         logger.info(f"Source video at: {source_path}")
     except (OSError, IOError, shutil.Error) as e:
         _last_error = f"Failed to set up video: {e}"
@@ -344,7 +386,9 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
             status_callback(f"extracting audio: {int(pct * 100)}%")
 
     if not extract_audio(
-        source_path, audio_path, ffmpeg_path,
+        source_path,
+        audio_path,
+        ffmpeg_path,
         duration=duration,
         progress_callback=_audio_progress if status_callback else None,
     ):
@@ -370,7 +414,9 @@ def ingest_video(input_video_path, ffmpeg_path: str = "ffmpeg", quality: str = "
             msg_count = len(json.loads(chat_path.read_text()))
             console.print(f"[dim]Chat: {msg_count} messages saved[/dim]")
         else:
-            console.print("[yellow]Warning: Chat download failed — continuing without chat[/yellow]")
+            console.print(
+                "[yellow]Warning: Chat download failed — continuing without chat[/yellow]"
+            )
 
     # Clean up temp download dir
     if tmp_dir:

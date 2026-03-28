@@ -17,12 +17,13 @@ type ChildHandle = Arc<Mutex<Option<Child>>>;
 struct AppState {
     child: ChildHandle,
     viewer_server_port: Arc<Mutex<Option<u16>>>,
+    viewer_project_dir: Arc<Mutex<String>>,
 }
 
 /// Shared state for the axum video/viewer server.
 #[derive(Clone)]
 struct ViewerServerState {
-    project_dir: String,
+    project_dir: Arc<Mutex<String>>,
 }
 
 // ── IPC message types ─────────────────────────────────────────────────────────
@@ -280,14 +281,18 @@ const VIEWER_HTML: &str = include_str!("viewer.html");
 async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16, String> {
     // Check if server is already running
     let port_handle = app.state::<AppState>().viewer_server_port.clone();
+    let shared_dir = app.state::<AppState>().viewer_project_dir.clone();
+
+    // Always update the project dir (so the running server serves the new project)
+    *shared_dir.lock().unwrap() = project_dir.clone();
+
     if let Some(port) = *port_handle.lock().unwrap() {
-        // Server already running — just return the port
-        // (project_dir might have changed, but we restart for simplicity)
+        // Server already running — project dir updated above, reuse the port
         return Ok(port);
     }
 
     let state = ViewerServerState {
-        project_dir: project_dir.clone(),
+        project_dir: shared_dir.clone(),
     };
 
     let cors = tower_http::cors::CorsLayer::permissive();
@@ -332,7 +337,8 @@ async fn serve_viewer_html() -> impl IntoResponse {
 
 /// Serve beats.json from the project directory.
 async fn serve_beats_json(AxumState(state): AxumState<ViewerServerState>) -> impl IntoResponse {
-    let path = std::path::Path::new(&state.project_dir).join("beats.json");
+    let project_dir = state.project_dir.lock().unwrap().clone();
+    let path = std::path::Path::new(&project_dir).join("beats.json");
     match tokio::fs::read_to_string(&path).await {
         Ok(data) => (
             StatusCode::OK,
@@ -348,16 +354,14 @@ async fn serve_beats_json(AxumState(state): AxumState<ViewerServerState>) -> imp
     }
 }
 
-/// Max bytes to read per Range chunk — prevents loading entire file into memory.
-const RANGE_CHUNK_SIZE: u64 = 2 * 1024 * 1024; // 2 MB
-
 /// Serve the video file with HTTP Range request support for seeking.
-/// Streams the file — never loads the whole thing into memory.
+/// Streams all responses — never loads the whole file into memory.
 async fn serve_video(
     AxumState(state): AxumState<ViewerServerState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let base = std::path::Path::new(&state.project_dir);
+    let project_dir = state.project_dir.lock().unwrap().clone();
+    let base = std::path::Path::new(&project_dir);
     let video_path = match find_video_file(base) {
         Some(p) => p,
         None => {
@@ -389,12 +393,7 @@ async fn serve_video(
     if let Some(range_header) = headers.get("range") {
         if let Ok(range_str) = range_header.to_str() {
             if let Some(range) = parse_range(range_str, file_size) {
-                let (start, mut end) = range;
-
-                // Cap the chunk size to avoid loading huge ranges into memory
-                if end - start + 1 > RANGE_CHUNK_SIZE {
-                    end = start + RANGE_CHUNK_SIZE - 1;
-                }
+                let (start, end) = range;
                 let length = end - start + 1;
 
                 let mut file = match tokio::fs::File::open(&video_path).await {
@@ -413,27 +412,25 @@ async fn serve_video(
                         .into_response();
                 }
 
-                let mut buf = vec![0u8; length as usize];
-                match file.read_exact(&mut buf).await {
-                    Ok(_) => {}
-                    Err(_) => {
-                        // Partial read at end of file — truncate buffer
-                        buf.truncate(buf.len());
-                    }
-                }
+                // Stream the range — .take() caps bytes without loading into memory
+                let limited = file.take(length);
+                let stream = ReaderStream::new(limited);
+                let body = Body::from_stream(stream);
 
                 let content_range = format!("bytes {start}-{end}/{file_size}");
                 let len_str = length.to_string();
 
-                return axum::http::Response::builder()
+                return match axum::http::Response::builder()
                     .status(StatusCode::PARTIAL_CONTENT)
                     .header("content-type", content_type)
                     .header("accept-ranges", "bytes")
                     .header("content-range", content_range)
                     .header("content-length", len_str)
-                    .body(Body::from(buf))
-                    .unwrap()
-                    .into_response();
+                    .body(body)
+                {
+                    Ok(resp) => resp.into_response(),
+                    Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Response build failed").into_response(),
+                };
             }
         }
     }
@@ -454,22 +451,38 @@ async fn serve_video(
     let body = Body::from_stream(stream);
     let len_str = file_size.to_string();
 
-    axum::http::Response::builder()
+    match axum::http::Response::builder()
         .status(StatusCode::OK)
         .header("content-type", content_type)
         .header("accept-ranges", "bytes")
         .header("content-length", len_str)
         .body(body)
-        .unwrap()
-        .into_response()
+    {
+        Ok(resp) => resp.into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Response build failed").into_response(),
+    }
 }
 
-/// Parse an HTTP Range header like "bytes=START-" or "bytes=START-END".
+/// Parse an HTTP Range header like "bytes=START-", "bytes=START-END", or "bytes=-N" (suffix).
 fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
+    if file_size == 0 {
+        return None;
+    }
+
     let range_str = range_str.strip_prefix("bytes=")?;
     let parts: Vec<&str> = range_str.splitn(2, '-').collect();
     if parts.len() != 2 {
         return None;
+    }
+
+    // Suffix range: "bytes=-500" means last 500 bytes
+    if parts[0].is_empty() {
+        let suffix_len: u64 = parts[1].parse().ok()?;
+        if suffix_len == 0 {
+            return None;
+        }
+        let start = file_size.saturating_sub(suffix_len);
+        return Some((start, file_size - 1));
     }
 
     let start: u64 = parts[0].parse().ok()?;
@@ -577,6 +590,7 @@ pub fn run() {
         .manage(AppState {
             child: child_handle,
             viewer_server_port,
+            viewer_project_dir: Arc::new(Mutex::new(String::new())),
         })
         .on_window_event(move |_window, event| {
             // Kill subprocess when user closes the app — prevents orphaned process (TODO #9).
