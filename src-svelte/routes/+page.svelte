@@ -72,7 +72,8 @@
             projectDir: e.payload.project_dir,
           });
           // Navigate the webview to the viewer served by our HTTP server
-          window.location.href = `http://127.0.0.1:${port}/`;
+          const origin = encodeURIComponent(window.location.origin);
+          window.location.href = `http://127.0.0.1:${port}/?origin=${origin}`;
         } catch (err) {
           errorMsg = String(err);
           screen = "import";
@@ -153,7 +154,7 @@
 <!-- ── Import ──────────────────────────────────────────────────────────────────── -->
 {#if screen === "import"}
   <main class="screen" class:drag-over={dragOver}>
-    <p class="title">VodTool</p>
+    <p class="title">VideoTool</p>
     <p class="">Narrative beat detection for stream VODs</p>
 
     {#if errorMsg}
@@ -178,7 +179,7 @@
 <!-- ── Processing ─────────────────────────────────────────────────────────────── -->
 {:else if screen === "processing"}
   <main class="screen">
-    <p class="title">VodTool</p>
+    <p class="title">VideoTool</p>
     <p class="dim">{videoFileName}</p>
 
     <div class="log">
