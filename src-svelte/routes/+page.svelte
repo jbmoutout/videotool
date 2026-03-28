@@ -52,6 +52,79 @@
     }
   });
 
+  // ── smooth progress bar ───────────────────────────────────────────────────────
+
+  let targetPct = $state(0);
+  let displayPct = $state(0);
+
+  $effect(() => {
+    if (screen === "processing") {
+      const iv = setInterval(() => {
+        if (displayPct < targetPct) {
+          // Catch up to the real target quickly
+          displayPct = Math.min(displayPct + 2, targetPct);
+        } else {
+          // Slow crawl past the target (shows activity)
+          // Cap at next_step boundary - 2%
+          const currentStep = progress?.step ?? 0;
+          const total = progress?.total ?? 3;
+          const nextStepPct = Math.round(((currentStep + 1) / total) * 100);
+          const cap = nextStepPct - 2;
+          if (displayPct < cap) {
+            displayPct = Math.min(displayPct + 0.5, cap);
+          }
+        }
+      }, 200);
+      return () => clearInterval(iv);
+    } else {
+      displayPct = 0;
+      targetPct = 0;
+    }
+  });
+
+  // ── rotating wait messages ────────────────────────────────────────────────────
+
+  const WAIT_MSGS: Record<number, string[]> = {
+    1: [
+      "downloading your vod...",
+      "extracting audio track...",
+      "ffmpeg doing its thing...",
+    ],
+    2: [
+      "converting speech to text...",
+      "whisper is listening...",
+      "every word counts...",
+      "decoding the stream...",
+    ],
+    3: [
+      "reading the transcript...",
+      "finding the narrative arcs...",
+      "where's the hook...",
+      "mapping the terrain...",
+      "looking for the peak...",
+      "almost there...",
+    ],
+  };
+
+  let waitMsgIdx = $state(0);
+  let currentWaitMsg = $state("");
+
+  $effect(() => {
+    if (screen === "processing") {
+      const iv = setInterval(() => {
+        const step = progress?.step ?? 1;
+        const msgs = WAIT_MSGS[step] ?? WAIT_MSGS[1];
+        waitMsgIdx = (waitMsgIdx + 1) % msgs.length;
+        currentWaitMsg = msgs[waitMsgIdx];
+      }, 4000);
+      // Set initial message
+      const step = progress?.step ?? 1;
+      const msgs = WAIT_MSGS[step] ?? WAIT_MSGS[1];
+      currentWaitMsg = msgs[0];
+      return () => clearInterval(iv);
+    }
+  });
+
   // ── event listeners ───────────────────────────────────────────────────────────
 
   let unlisteners: UnlistenFn[] = [];
@@ -64,14 +137,19 @@
           processLog = [...processLog, entry];
         }
         progress = e.payload;
+        targetPct = Math.round(e.payload.pct * 100);
+        // Reset wait message rotation for new step
+        waitMsgIdx = 0;
+        const msgs = WAIT_MSGS[e.payload.step] ?? WAIT_MSGS[1];
+        currentWaitMsg = msgs[0];
       }),
       listen<DoneMsg>("pipeline-done", async (e) => {
-        // Pipeline complete — start the viewer server and navigate to it
+        targetPct = 100;
+        displayPct = 100;
         try {
           const port = await invoke<number>("start_viewer_server", {
             projectDir: e.payload.project_dir,
           });
-          // Navigate the webview to the viewer served by our HTTP server
           const origin = encodeURIComponent(window.location.origin);
           window.location.href = `http://127.0.0.1:${port}/?origin=${origin}`;
         } catch (err) {
@@ -104,6 +182,9 @@
     errorMsg = null;
     progress = null;
     processLog = [];
+    targetPct = 0;
+    displayPct = 0;
+    waitMsgIdx = 0;
     videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
     try {
@@ -147,8 +228,6 @@
     progress = null;
     processLog = [];
   }
-
-  const progressPct = $derived(progress ? Math.round(progress.pct * 100) : 0);
 </script>
 
 <!-- ── Import ──────────────────────────────────────────────────────────────────── -->
@@ -185,19 +264,21 @@
     <div class="log">
       {#if processLog.length === 0}
         <p class="log-line">loading...</p>
-        <span class="spinner">{FRAMES[spinnerIdx]}</span>
       {:else}
         {#each processLog as line, i}
           <p class="log-line" class:dim={i < processLog.length - 1}>{line}</p>
         {/each}
-        <span class="spinner">{FRAMES[spinnerIdx]}</span>
       {/if}
+      <span class="spinner-line">
+        <span class="spinner">{FRAMES[spinnerIdx]}</span>
+        <span class="wait-msg">{currentWaitMsg}</span>
+      </span>
     </div>
 
     <div class="progress-track">
-      <div class="progress-fill" style="width: {progressPct}%"></div>
+      <div class="progress-fill" style="width: {displayPct}%"></div>
     </div>
-    <p class="dim pct">{progressPct}%</p>
+    <p class="dim pct">{Math.round(displayPct)}%</p>
 
     <div><button class="inline-btn" onclick={cancelPipeline}>[cancel]</button></div>
   </main>
@@ -270,7 +351,10 @@
   .log { margin-top: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.1rem; }
   .log-line { color: #c9c9c9; }
   .log-line.dim { color: #444; }
-  .spinner { color: #888; display: block; margin-top: 0.1rem; }
+
+  .spinner-line { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.1rem; }
+  .spinner { color: #888; }
+  .wait-msg { color: #555; font-size: 12px; }
 
   .progress-track {
     width: 100%;
@@ -282,7 +366,7 @@
   .progress-fill {
     height: 100%;
     background: #666;
-    transition: width 0.3s ease;
+    transition: width 0.2s ease;
   }
   .pct { margin-bottom: 1rem; }
 
