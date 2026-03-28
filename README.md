@@ -47,6 +47,9 @@ vodtool beats https://twitch.tv/videos/<id>
 # With language hint
 vodtool beats path/to/video.mp4 --language fr
 
+# Re-run beat detection only (skip ingest + transcribe)
+vodtool llm-beats projects/<id>
+
 # JSON progress output (for Tauri IPC)
 vodtool beats path/to/video.mp4 --json-progress
 ```
