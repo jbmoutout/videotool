@@ -22,6 +22,7 @@ console = Console()
 logger = logging.getLogger("vodtool")
 
 VALID_BEAT_TYPES = {"hook", "build", "peak", "resolution"}
+LLM_MODEL = "claude-sonnet-4-6"
 LLM_TIMEOUT = 300  # 5 minutes — long transcripts need more time
 MAX_RETRIES = 1
 
@@ -186,10 +187,13 @@ def _parse_beats_response(response_text: str) -> dict:
     """Parse LLM response and extract beats JSON."""
     response_text = response_text.strip()
 
-    # Handle markdown code blocks
+    # Handle markdown code blocks — strip fences robustly
     if response_text.startswith("```"):
-        lines = response_text.split("\n")
-        response_text = "\n".join(lines[1:-1])
+        # Find the JSON object boundaries instead of assuming fence positions
+        first_brace = response_text.find("{")
+        last_brace = response_text.rfind("}")
+        if first_brace != -1 and last_brace != -1:
+            response_text = response_text[first_brace:last_brace + 1]
 
     try:
         data = json.loads(response_text)
@@ -284,7 +288,7 @@ def detect_beats(
     for attempt in range(MAX_RETRIES + 1):
         try:
             response = client.messages.create(
-                model="claude-sonnet-4-6",
+                model=LLM_MODEL,
                 max_tokens=16384,
                 temperature=0.3,
                 messages=[{"role": "user", "content": prompt}],
