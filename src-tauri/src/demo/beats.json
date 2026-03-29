@@ -1,0 +1,201 @@
+{
+  "beats": [
+    {
+      "topic_id": "topic_1",
+      "topic_label": "Stream intro & chat warm-up",
+      "beats": [
+        {
+          "type": "highlight",
+          "start_s": 0,
+          "end_s": 120,
+          "confidence": 0.80,
+          "label": "Streamer greets chat, hype intro"
+        },
+        {
+          "type": "chat",
+          "start_s": 120,
+          "end_s": 360,
+          "confidence": 0.70,
+          "label": "Catching up on news, reading donations"
+        },
+        {
+          "type": "transition",
+          "start_s": 360,
+          "end_s": 540,
+          "confidence": 0.65,
+          "label": "Transition to main topic"
+        }
+      ]
+    },
+    {
+      "topic_id": "topic_2",
+      "topic_label": "Hot take: the new patch is broken",
+      "beats": [
+        {
+          "type": "highlight",
+          "start_s": 540,
+          "end_s": 720,
+          "confidence": 0.90,
+          "label": "\"This patch literally ruined the game\""
+        },
+        {
+          "type": "context",
+          "start_s": 720,
+          "end_s": 1200,
+          "confidence": 0.85,
+          "label": "Breaking down each balance change"
+        },
+        {
+          "type": "core",
+          "start_s": 1200,
+          "end_s": 1500,
+          "confidence": 0.92,
+          "label": "Chat erupts over the tank nerf, heated debate"
+        },
+        {
+          "type": "transition",
+          "start_s": 1500,
+          "end_s": 1800,
+          "confidence": 0.75,
+          "label": "Calming down, agreeing to wait and see"
+        }
+      ]
+    },
+    {
+      "topic_id": "topic_3",
+      "topic_label": "Viewer Q&A segment",
+      "beats": [
+        {
+          "type": "chat",
+          "start_s": 1800,
+          "end_s": 1920,
+          "confidence": 0.70,
+          "label": "Opening up questions from chat"
+        },
+        {
+          "type": "chat",
+          "start_s": 1920,
+          "end_s": 2400,
+          "confidence": 0.68,
+          "label": "Answering gear, setup, and career questions"
+        },
+        {
+          "type": "highlight",
+          "start_s": 2400,
+          "end_s": 2700,
+          "confidence": 0.82,
+          "label": "Emotional story about early streaming days"
+        },
+        {
+          "type": "transition",
+          "start_s": 2700,
+          "end_s": 3000,
+          "confidence": 0.60,
+          "label": "Wrapping up Q&A, thanking subs"
+        }
+      ]
+    },
+    {
+      "topic_id": "topic_4",
+      "topic_label": "Gameplay: ranked grind",
+      "beats": [
+        {
+          "type": "context",
+          "start_s": 3000,
+          "end_s": 3180,
+          "confidence": 0.78,
+          "label": "Loading into ranked, \"let's get this W\""
+        },
+        {
+          "type": "core",
+          "start_s": 3180,
+          "end_s": 4200,
+          "confidence": 0.75,
+          "label": "Early game rotations, strategic callouts"
+        },
+        {
+          "type": "highlight",
+          "start_s": 4200,
+          "end_s": 4800,
+          "confidence": 0.95,
+          "label": "Clutch 1v3 fight, chat goes wild"
+        },
+        {
+          "type": "transition",
+          "start_s": 4800,
+          "end_s": 5400,
+          "confidence": 0.72,
+          "label": "Post-game analysis, rank up celebration"
+        }
+      ]
+    },
+    {
+      "topic_id": "topic_5",
+      "topic_label": "Drama recap: tournament controversy",
+      "beats": [
+        {
+          "type": "highlight",
+          "start_s": 5400,
+          "end_s": 5580,
+          "confidence": 0.88,
+          "label": "\"So you all saw what happened at the tournament...\""
+        },
+        {
+          "type": "context",
+          "start_s": 5580,
+          "end_s": 6000,
+          "confidence": 0.80,
+          "label": "Explaining the context and the clip"
+        },
+        {
+          "type": "core",
+          "start_s": 6000,
+          "end_s": 6300,
+          "confidence": 0.90,
+          "label": "Strong opinion drop, chat divided"
+        },
+        {
+          "type": "transition",
+          "start_s": 6300,
+          "end_s": 6600,
+          "confidence": 0.70,
+          "label": "Nuanced take, calling for fairness"
+        }
+      ]
+    },
+    {
+      "topic_id": "topic_6",
+      "topic_label": "Stream outro & raid",
+      "beats": [
+        {
+          "type": "chat",
+          "start_s": 6600,
+          "end_s": 6720,
+          "confidence": 0.65,
+          "label": "\"Alright chat, we're wrapping up\""
+        },
+        {
+          "type": "chat",
+          "start_s": 6720,
+          "end_s": 6900,
+          "confidence": 0.60,
+          "label": "Thanking top donors and new subs"
+        },
+        {
+          "type": "highlight",
+          "start_s": 6900,
+          "end_s": 7020,
+          "confidence": 0.75,
+          "label": "Announcing next stream schedule, tease"
+        },
+        {
+          "type": "break",
+          "start_s": 7020,
+          "end_s": 7200,
+          "confidence": 0.70,
+          "label": "Raid target picked, goodbye"
+        }
+      ]
+    }
+  ]
+}

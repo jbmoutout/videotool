@@ -1,0 +1,10 @@
+{
+  "project_id": "demo_sample",
+  "created_at": "2026-01-01T00:00:00+00:00",
+  "source_filename": "demo_vod.mp4",
+  "source_path": "",
+  "duration_seconds": 7200,
+  "audio_path": "",
+  "title": "Sample VOD — beat timeline demo",
+  "channel": "vodtool"
+}
