@@ -49,10 +49,13 @@ def transcribe_audio(
         console.print(f"[red]Error: {error}[/red]")
         return None
 
-    audio_path = project_path / "audio.wav"
+    # Twitch projects use audio_raw.ts, local projects use audio.wav
+    audio_path = project_path / "audio_raw.ts"
     if not audio_path.exists():
-        _last_error = f"Audio file not found: {audio_path}"
-        console.print(f"[red]Error: Audio file not found: {audio_path}[/red]")
+        audio_path = project_path / "audio.wav"
+    if not audio_path.exists():
+        _last_error = f"Audio file not found in {project_path}"
+        console.print(f"[red]Error: No audio file found in {project_path}[/red]")
         console.print("Run 'vodtool ingest' first to create a project with audio.")
         return None
 
@@ -113,6 +116,7 @@ def transcribe_audio(
             return None
 
         if not safe_write_json(transcript_raw_path, result):
+            _last_error = "Failed to write transcript_raw.json"
             return None
         logger.info(f"Saved transcript_raw.json: {transcript_raw_path}")
 
