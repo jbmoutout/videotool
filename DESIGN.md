@@ -69,6 +69,60 @@
 - Spinner uses braille characters (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏), not decorative loading indicators
 - Wait messages rotate in #555 (text-muted), 12px
 
+## Landing Page
+
+Single-page site for VodTool. The vibe is htmx.org meets curl.se — earns trust through directness, not polish.
+
+### Layout
+- Single column, left-aligned, max-width 720px
+- No hero section, no centered headings
+- Reads like a well-structured README that happens to be on the web
+- Sections flow top-to-bottom separated by whitespace, not dividers or cards
+
+### Structure (top to bottom)
+1. **Nav** — github, releases, issues (plain text links, muted color)
+2. **ASCII logo** — the block-letter art from README. This IS the hero. No screenshot, no illustration, no video.
+3. **Tagline** — "I'm building a tool that maps your stream before you edit it. Try the beta." (muted, 13px) — builder energy, not marketing copy
+4. **Download** — primary CTA. Three lines: macOS Apple Silicon, macOS Intel, Windows. Platform label (muted, 180px wide) + download link (accent color).
+5. **How it works** — 3 pipeline steps (ingest, transcribe, detect beats), plain text, no icons
+6. **Output** — actual beats.json sample in a syntax-highlighted code block. Code as proof, not feature bullets.
+7. **The app** — 2 sentences: what you do (paste link or drop file), what you get (interactive beat timeline). "No cloud. Everything runs on your machine."
+8. **Requirements** — flat list: ffmpeg, yt-dlp, GROQ_API_KEY, ANTHROPIC_API_KEY
+9. **Open source** — GitHub link, tech stack (Tauri + Svelte + Python + Rust)
+10. **Footer** — repo link, MIT License, hairline border-top
+
+### Typography
+- All JetBrains Mono (matches app DESIGN.md)
+- 13px body, 15px section headers (h2, font-weight 500), 18px page title only
+- ASCII logo: 10px, line-height 1.15, letter-spacing -0.5px (responsive: 6.5px on mobile)
+
+### Color
+- Same palette as app: #0A0A0A bg, #111111 code blocks, #222222 borders
+- #C9C9C9 body text, #FFFFFF headers, #555555 muted, #444444 dim
+- #6B8AFF links and download filenames
+- Syntax highlighting: #4ADE80 strings, #6B8AFF keys, #FFB830 numbers, #C792EA types
+
+### Design Risks (deliberate departures)
+- **ASCII logo as hero** — no screenshot, no product shot, no illustration. Signals "CLI-native tool made by someone who cares about craft."
+- **Code output as proof** — beats.json sample instead of feature bullets or testimonials. Let the tool speak.
+
+### Anti-patterns (do not add)
+- No marketing copy ("Built for streamers", "Designed for editors")
+- No testimonial sections
+- No screenshot carousel or product tour
+- No centered content
+- No gradient backgrounds or decorative elements
+- No JavaScript (page is static HTML + CSS only)
+
+### Hosting
+GitHub Pages, served from `landing/` directory. No build step, no framework.
+
+### Tone
+Builder energy — acknowledges it's early beta, invites honest feedback. The personal context comes from the DM, the page just needs to be direct and trustworthy.
+
+### Reference
+Working implementation: `landing/index.html`
+
 ## Decisions Log
 | Date | Decision | Rationale |
 |------|----------|-----------|
@@ -76,3 +130,5 @@
 | 2026-03-29 | Chose #6B8AFF soft blue over #39FF14 green | Green was too flashy — doesn't fit "sits next to OBS and Discord." Blue is familiar to gamers (Discord, VS Code) without being generic |
 | 2026-03-29 | Single monospace family (JetBrains Mono) | Pure monospace signals "serious tool." No sans-serif layer needed — VodTool has no long prose |
 | 2026-03-29 | Beat timeline-as-waveform noted as direction to explore | Signal lane concept (vertical beat markers on horizontal timeline) is promising but needs its own UX exploration — not a design system specification |
+| 2026-03-29 | Landing page: text-first single page, ASCII hero, download CTA | htmx.org/curl.se energy — earns trust through directness. Download links (macOS + Windows) as primary CTA, not CLI install. |
+| 2026-03-29 | Builder energy tagline over marketing copy | Beta validation page, not product marketing. "I'm building a tool..." invites feedback. Hosted on GitHub Pages. |
