@@ -13,6 +13,9 @@
   .top-bar .status { color: #555; }
 
   video { width: 100%; max-height: 45vh; background: #000; display: block; margin-bottom: 0.5rem; }
+  video.hidden { display: none; }
+  #video-pending { display: none; font-size: 11px; color: #555; padding: 0.5rem 0; margin-bottom: 0.5rem; }
+  #video-pending.visible { display: block; }
 
   #timeline { position: relative; width: 100%; overflow-x: auto; margin-bottom: 0.5rem; border: 1px solid #1e1e1e; background: #111; }
   .topic-row { position: relative; height: 28px; border-bottom: 1px solid #1a1a1a; }
@@ -42,6 +45,7 @@
 </div>
 
 <video id="player" controls></video>
+<div id="video-pending">video downloading in background...</div>
 
 <div class="legend">
   <div class="legend-item"><div class="legend-swatch" style="background:#c05050"></div>hook</div>
@@ -62,14 +66,18 @@ const timeline = document.getElementById("timeline");
 const playhead = document.getElementById("playhead");
 const hoverInfo = document.getElementById("hover-info");
 const status = document.getElementById("status");
+const videoPending = document.getElementById("video-pending");
 
 let duration = 0;
 let beats = [];
+let videoReady = false;
 const LABEL_W = 140;
+
+const params = new URLSearchParams(window.location.search);
+const beatsOnlyMode = params.get("mode") === "beats-only";
 
 // ── [new] button — navigate back to Svelte app ───────────────────
 document.getElementById("new-btn").addEventListener("click", () => {
-  const params = new URLSearchParams(window.location.search);
   const origin = params.get("origin") || "http://localhost:1420";
   // Only allow http(s) URLs to prevent javascript: or data: redirects
   try {
@@ -80,8 +88,34 @@ document.getElementById("new-btn").addEventListener("click", () => {
   } catch (_) { /* invalid URL — ignore */ }
 });
 
-// ── Auto-load from server ─────────────────────────────────────────
-player.src = "/video";
+// ── Video loading ─────────────────────────────────────────────────
+function enableVideo() {
+  if (videoReady) return;
+  videoReady = true;
+  player.classList.remove("hidden");
+  videoPending.classList.remove("visible");
+  player.src = "/video";
+}
+
+if (beatsOnlyMode) {
+  // Hide video, show pending message, poll for video availability
+  player.classList.add("hidden");
+  videoPending.classList.add("visible");
+
+  const pollInterval = setInterval(async () => {
+    try {
+      const resp = await fetch("/video", { method: "HEAD" });
+      if (resp.ok) {
+        clearInterval(pollInterval);
+        enableVideo();
+      }
+    } catch (_) { /* server not ready yet */ }
+  }, 5000);
+} else {
+  // Full mode — load video immediately
+  player.src = "/video";
+  videoReady = true;
+}
 
 player.addEventListener("loadedmetadata", () => {
   duration = player.duration;
@@ -140,6 +174,7 @@ function render() {
       el.textContent = b.label;
 
       el.addEventListener("click", () => {
+        if (!videoReady) return;
         player.currentTime = b.start_s;
         if (player.paused && player.src) player.play();
       });
