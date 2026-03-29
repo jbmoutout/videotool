@@ -419,8 +419,8 @@ def beats(
     """
     Run beat detection pipeline: ingest → transcribe → llm-beats.
 
-    Simplified 3-step pipeline. The LLM identifies topics AND narrative beats
-    (hook/build/peak/resolution) in a single call from the full transcript.
+    Simplified 3-step pipeline. The LLM identifies topics AND beats
+    (highlight/core/context/chat/transition/break) in a single call, tiling the full stream.
     With --json-progress, emits lines like: {"step":1,"total":3,"pct":0.333,"msg":"..."}
     """
     import json as _json
