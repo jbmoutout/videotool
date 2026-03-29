@@ -176,20 +176,29 @@ class GroqTranscriptionProvider(_WhisperAPIBase):
       whisper-large-v3             — max accuracy, slightly slower
       distil-whisper-large-v3-en   — English only, fastest
 
-    Requires GROQ_API_KEY (free tier: ~2hrs audio/day). Get one at console.groq.com.
+    Requires GROQ_API_KEY or VITE_API_PROXY_URL. Get a key at console.groq.com.
     """
 
     def __init__(self, api_key: Optional[str] = None, model: str = "whisper-large-v3-turbo"):
         api_key = api_key or os.environ.get("GROQ_API_KEY")
-        if not api_key:
-            raise ValueError("GROQ_API_KEY not set. Get a free key at https://console.groq.com")
+        proxy_url = os.environ.get("VITE_API_PROXY_URL")
+        if not api_key and not proxy_url:
+            raise ValueError(
+                "GROQ_API_KEY not set and no proxy configured. "
+                "Set GROQ_API_KEY or VITE_API_PROXY_URL in .env"
+            )
         try:
             import openai
         except ImportError:
             raise ImportError("openai package not installed. Run: pip install openai")
+        if api_key:
+            base_url = "https://api.groq.com/openai/v1"
+        else:
+            base_url = f"{proxy_url.rstrip('/')}/groq"
+            logger.info("Using proxy for Groq transcription")
         self._client = openai.OpenAI(
-            api_key=api_key,
-            base_url="https://api.groq.com/openai/v1",
+            api_key=api_key or "proxy",
+            base_url=base_url,
         )
         self._model = model
 
