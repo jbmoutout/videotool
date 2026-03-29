@@ -98,9 +98,13 @@ def ingest(
     Accepts a local file path or a Twitch URL (https://twitch.tv/videos/<id>).
     """
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
-    project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
-    if project_dir is None:
+    result = ingest_video(input_video_path, ffmpeg_path, quality=quality)
+    if result is None:
         raise typer.Exit(code=1)
+    project_dir, video_download = result
+    # For standalone ingest, wait for background video download if any
+    if video_download is not None:
+        video_download.join()
 
 
 @app.command()
@@ -359,13 +363,15 @@ def _run_ingest_and_transcribe(
             )
             sys.stdout.flush()
 
-    project_dir = ingest_video(
+    ingest_result = ingest_video(
         input_video_path, ffmpeg_path, quality=quality,
         download_progress_callback=_download_progress if json_progress else None,
         status_callback=_ingest_status if json_progress else None,
     )
-    if project_dir is None:
+    if ingest_result is None:
         fail(1, get_ingest_error() or "Ingest failed")
+
+    project_dir, video_download = ingest_result
 
     # Step 2: Transcribe
     progress(2, "Transcribing audio...")
@@ -375,7 +381,7 @@ def _run_ingest_and_transcribe(
     if transcript_path is None:
         fail(2, get_transcribe_error() or "Transcription failed")
 
-    return project_dir, progress, fail
+    return project_dir, video_download, progress, fail
 
 
 @app.command()
@@ -413,11 +419,13 @@ def beats(
     With --json-progress, emits lines like: {"step":1,"total":3,"pct":0.333,"msg":"..."}
     """
     import json as _json
+    import shutil
+    import subprocess
     import sys
 
     total = 3
 
-    project_dir, progress, fail = _run_ingest_and_transcribe(
+    project_dir, video_download, progress, fail = _run_ingest_and_transcribe(
         input_video_path, json_progress, total,
         quality=quality,
         transcription_provider=transcription_provider,
@@ -431,14 +439,61 @@ def beats(
     if beats_path is None:
         fail(3, get_beats_error() or "Beat detection failed")
 
+    try:
+        beats_data = _json.loads(beats_path.read_text())
+        beat_count = sum(len(t["beats"]) for t in beats_data.get("beats", []))
+        topic_count = len(beats_data.get("beats", []))
+    except Exception:
+        beat_count = 0
+        topic_count = 0
+
+    if video_download is not None:
+        # Twitch: beats are ready, video still downloading in background
+        if json_progress:
+            sys.stdout.write(
+                _json.dumps({
+                    "beats_ready": True,
+                    "project_dir": str(project_dir),
+                    "topic_count": topic_count,
+                    "beat_count": beat_count,
+                })
+                + "\n"
+            )
+            sys.stdout.flush()
+        else:
+            console.print("\n[bold green]✓ Beats ready![/bold green]")
+            console.print("[cyan]Waiting for video download to finish...[/cyan]")
+
+        # Wait for background video download
+        video_download.join()
+        tmp_dir = video_download.tmp_dir
+        ffmpeg_path_val = video_download.ffmpeg_path
+
+        if video_download.success:
+            # Remux downloaded TS to MP4
+            source_path = project_dir / "source.mp4"
+            remux_result = subprocess.run(
+                [
+                    ffmpeg_path_val, "-i", str(video_download.output_path),
+                    "-c:v", "copy", "-c:a", "aac", "-y", str(source_path),
+                ],
+                capture_output=True, text=True, check=False,
+            )
+            if remux_result.returncode != 0:
+                console.print("[yellow]Warning: Video remux failed — beats still available[/yellow]")
+            else:
+                if json_progress:
+                    sys.stdout.write(_json.dumps({"video_ready": True, "project_dir": str(project_dir)}) + "\n")
+                    sys.stdout.flush()
+        else:
+            console.print(f"[yellow]Warning: Video download failed ({video_download.error}) — beats still available[/yellow]")
+
+        # Clean up temp dir
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # Final done event
     if json_progress:
-        try:
-            beats_data = _json.loads(beats_path.read_text())
-            beat_count = sum(len(t["beats"]) for t in beats_data.get("beats", []))
-            topic_count = len(beats_data.get("beats", []))
-        except Exception:
-            beat_count = 0
-            topic_count = 0
         sys.stdout.write(
             _json.dumps({
                 "done": True,
@@ -507,7 +562,7 @@ def pipeline(
 
     total = 5
 
-    project_dir, progress, fail = _run_ingest_and_transcribe(
+    project_dir, video_download, progress, fail = _run_ingest_and_transcribe(
         input_video_path, json_progress, total,
         quality=quality,
         transcription_provider=transcription_provider,
@@ -532,6 +587,21 @@ def pipeline(
     topic_map_path = llm_topics(project_dir, max_topics, provider, model)
     if topic_map_path is None:
         fail(5, get_llm_error() or "LLM topic detection failed")
+
+    # Wait for background video download if Twitch URL was used
+    if video_download is not None:
+        import shutil as _shutil
+        import subprocess as _subprocess
+        video_download.join()
+        if video_download.success:
+            source_path = project_dir / "source.mp4"
+            _subprocess.run(
+                [video_download.ffmpeg_path, "-i", str(video_download.output_path),
+                 "-c:v", "copy", "-c:a", "aac", "-y", str(source_path)],
+                capture_output=True, text=True, check=False,
+            )
+        if video_download.tmp_dir:
+            _shutil.rmtree(video_download.tmp_dir, ignore_errors=True)
 
     if json_progress:
         try:
