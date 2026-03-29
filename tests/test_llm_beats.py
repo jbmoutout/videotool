@@ -6,6 +6,7 @@ from unittest import mock
 import pytest
 
 from vodtool.commands.llm_beats import (
+    _compute_gaps,
     _parse_beats_response,
     validate_beats,
 )
@@ -19,9 +20,9 @@ VALID_BEATS = {
             "topic_id": "topic_0001",
             "topic_label": "Harry Potter casting",
             "beats": [
-                {"type": "hook", "start_s": 100, "end_s": 130, "confidence": 0.91, "label": "Hot take"},
-                {"type": "peak", "start_s": 200, "end_s": 400, "confidence": 0.85, "label": "Main argument"},
-                {"type": "resolution", "start_s": 400, "end_s": 450, "confidence": 0.6, "label": "Wind down"},
+                {"type": "context", "start_s": 100, "end_s": 130, "confidence": 0.75, "label": "Setup"},
+                {"type": "core", "start_s": 130, "end_s": 400, "confidence": 0.85, "label": "Main argument"},
+                {"type": "transition", "start_s": 400, "end_s": 450, "confidence": 0.6, "label": "Wind down"},
             ],
         },
     ],
@@ -41,7 +42,7 @@ class TestValidateBeats:
         result = validate_beats(VALID_BEATS, STREAM_DURATION)
         assert len(result["beats"]) == 1
         assert len(result["beats"][0]["beats"]) == 3
-        assert result["beats"][0]["beats"][0]["type"] == "hook"
+        assert result["beats"][0]["beats"][0]["type"] == "context"
 
     def test_invalid_type_dropped(self):
         """Beats with invalid type are dropped."""
@@ -51,7 +52,7 @@ class TestValidateBeats:
                     "topic_id": "t1",
                     "topic_label": "Test",
                     "beats": [
-                        {"type": "hook", "start_s": 10, "end_s": 20, "confidence": 0.9, "label": "ok"},
+                        {"type": "highlight", "start_s": 10, "end_s": 20, "confidence": 0.9, "label": "ok"},
                         {"type": "climax", "start_s": 30, "end_s": 40, "confidence": 0.8, "label": "bad type"},
                     ],
                 },
@@ -59,7 +60,43 @@ class TestValidateBeats:
         }
         result = validate_beats(data, STREAM_DURATION)
         assert len(result["beats"][0]["beats"]) == 1
-        assert result["beats"][0]["beats"][0]["type"] == "hook"
+        assert result["beats"][0]["beats"][0]["type"] == "highlight"
+
+    def test_all_new_types_accepted(self):
+        """All 6 new beat types are accepted by validation."""
+        data = {
+            "beats": [
+                {
+                    "topic_id": "t1",
+                    "topic_label": "Test",
+                    "beats": [
+                        {"type": t, "start_s": i * 100, "end_s": (i + 1) * 100, "confidence": 0.8, "label": f"{t} beat"}
+                        for i, t in enumerate(["highlight", "core", "context", "chat", "transition", "break"])
+                    ],
+                },
+            ],
+        }
+        result = validate_beats(data, STREAM_DURATION)
+        assert len(result["beats"][0]["beats"]) == 6
+
+    def test_legacy_types_dropped(self):
+        """Old beat types (hook, build, peak, resolution) are now invalid."""
+        data = {
+            "beats": [
+                {
+                    "topic_id": "t1",
+                    "topic_label": "Test",
+                    "beats": [
+                        {"type": "hook", "start_s": 10, "end_s": 20, "confidence": 0.9, "label": "old"},
+                        {"type": "peak", "start_s": 20, "end_s": 30, "confidence": 0.9, "label": "old"},
+                        {"type": "core", "start_s": 30, "end_s": 40, "confidence": 0.9, "label": "new"},
+                    ],
+                },
+            ],
+        }
+        result = validate_beats(data, STREAM_DURATION)
+        assert len(result["beats"][0]["beats"]) == 1
+        assert result["beats"][0]["beats"][0]["type"] == "core"
 
     def test_timestamps_clamped_to_stream_duration(self):
         """Timestamps beyond stream duration are clamped."""
@@ -69,7 +106,7 @@ class TestValidateBeats:
                     "topic_id": "t1",
                     "topic_label": "Test",
                     "beats": [
-                        {"type": "peak", "start_s": 3500, "end_s": 4000, "confidence": 0.8, "label": "over"},
+                        {"type": "core", "start_s": 3500, "end_s": 4000, "confidence": 0.8, "label": "over"},
                     ],
                 },
             ],
@@ -88,16 +125,16 @@ class TestValidateBeats:
                     "topic_label": "Test",
                     "beats": [
                         # Both beyond duration → both clamp to 3600 → start >= end → dropped
-                        {"type": "peak", "start_s": 3700, "end_s": 3800, "confidence": 0.8, "label": "bad"},
+                        {"type": "core", "start_s": 3700, "end_s": 3800, "confidence": 0.8, "label": "bad"},
                         # Valid beat to keep the topic alive
-                        {"type": "hook", "start_s": 10, "end_s": 20, "confidence": 0.9, "label": "ok"},
+                        {"type": "highlight", "start_s": 10, "end_s": 20, "confidence": 0.9, "label": "ok"},
                     ],
                 },
             ],
         }
         result = validate_beats(data, STREAM_DURATION)
         assert len(result["beats"][0]["beats"]) == 1
-        assert result["beats"][0]["beats"][0]["type"] == "hook"
+        assert result["beats"][0]["beats"][0]["type"] == "highlight"
 
     def test_missing_beats_key_raises(self):
         """beats_data without 'beats' key raises ValueError."""
@@ -129,6 +166,115 @@ class TestParseBeatsResponse:
         result = _parse_beats_response(response)
         assert "beats" in result
         assert len(result["beats"]) == 1
+
+
+# ── Test _compute_gaps ────────────────────────────────────────────────────────
+
+
+class TestComputeGaps:
+    """Tests for _compute_gaps()."""
+
+    def test_no_gaps_full_coverage(self):
+        """Fully tiled beats produce no gaps."""
+        data = {
+            "beats": [
+                {
+                    "topic_id": "t1",
+                    "topic_label": "Test",
+                    "beats": [
+                        {"type": "break", "start_s": 0, "end_s": 100},
+                        {"type": "core", "start_s": 100, "end_s": 500},
+                        {"type": "transition", "start_s": 500, "end_s": 600},
+                    ],
+                },
+            ],
+        }
+        gaps = _compute_gaps(data, 600.0)
+        assert gaps == []
+
+    def test_gap_at_start(self):
+        """Gap at stream start is detected."""
+        data = {
+            "beats": [
+                {
+                    "topic_id": "t1",
+                    "topic_label": "Test",
+                    "beats": [
+                        {"type": "core", "start_s": 300, "end_s": 600},
+                    ],
+                },
+            ],
+        }
+        gaps = _compute_gaps(data, 600.0)
+        assert len(gaps) == 1
+        assert gaps[0]["start_s"] == 0.0
+        assert gaps[0]["end_s"] == 300
+
+    def test_gap_at_end(self):
+        """Gap at stream end is detected."""
+        data = {
+            "beats": [
+                {
+                    "topic_id": "t1",
+                    "topic_label": "Test",
+                    "beats": [
+                        {"type": "core", "start_s": 0, "end_s": 300},
+                    ],
+                },
+            ],
+        }
+        gaps = _compute_gaps(data, 600.0)
+        assert len(gaps) == 1
+        assert gaps[0]["start_s"] == 300
+        assert gaps[0]["end_s"] == 600.0
+
+    def test_gap_in_middle(self):
+        """Gap between topics is detected."""
+        data = {
+            "beats": [
+                {
+                    "topic_id": "t1",
+                    "topic_label": "First",
+                    "beats": [{"type": "core", "start_s": 0, "end_s": 200}],
+                },
+                {
+                    "topic_id": "t2",
+                    "topic_label": "Second",
+                    "beats": [{"type": "core", "start_s": 400, "end_s": 600}],
+                },
+            ],
+        }
+        gaps = _compute_gaps(data, 600.0)
+        assert len(gaps) == 1
+        assert gaps[0]["start_s"] == 200
+        assert gaps[0]["end_s"] == 400
+
+    def test_overlapping_beats_merged(self):
+        """Overlapping beats across topics don't create false gaps."""
+        data = {
+            "beats": [
+                {
+                    "topic_id": "t1",
+                    "topic_label": "First",
+                    "beats": [{"type": "core", "start_s": 0, "end_s": 350}],
+                },
+                {
+                    "topic_id": "t2",
+                    "topic_label": "Second",
+                    "beats": [{"type": "core", "start_s": 300, "end_s": 600}],
+                },
+            ],
+        }
+        gaps = _compute_gaps(data, 600.0)
+        assert gaps == []
+
+    def test_empty_beats(self):
+        """Empty beats data produces one big gap."""
+        data = {"beats": []}
+        gaps = _compute_gaps(data, 600.0)
+        assert len(gaps) == 1
+        assert gaps[0]["start_s"] == 0.0
+        assert gaps[0]["end_s"] == 600.0
 
 
 # ── Test detect_beats (API key missing) ──────────────────────────────────────
