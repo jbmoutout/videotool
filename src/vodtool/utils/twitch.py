@@ -4,7 +4,6 @@ import json
 import logging
 import re
 import subprocess
-import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -41,6 +40,87 @@ def check_streamlink() -> bool:
         return False
 
 
+# Ordered list of video qualities from lowest to highest resolution.
+# Used for fallback when a requested quality is unavailable.
+_QUALITY_LADDER = ["160p", "360p", "480p", "480p60", "720p", "720p60", "1080p", "1080p60"]
+
+
+def get_available_streams(url: str) -> Optional[list[str]]:
+    """Query streamlink for the list of available stream names.
+
+    Returns a list of stream names (e.g. ['audio', '480p', '720p60', 'best'])
+    or None if the query fails. Stderr is suppressed to avoid blocking.
+    """
+    try:
+        result = subprocess.run(
+            ["streamlink", url, "--json"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            logger.warning("streamlink --json returned non-zero exit code")
+            return None
+        data = json.loads(result.stdout)
+        return list(data.get("streams", {}).keys())
+    except subprocess.TimeoutExpired:
+        logger.warning("streamlink --json timed out after 30s")
+        return None
+    except (json.JSONDecodeError, Exception) as e:
+        logger.warning(f"Failed to query available streams: {e}")
+        return None
+
+
+def resolve_quality(requested: str, available: list[str]) -> str:
+    """
+    Pick the best available quality from a requested comma-separated list.
+
+    If none of the requested qualities exist, fall back to the nearest
+    lower resolution on the quality ladder, then nearest higher, then 'best'.
+    """
+    candidates = [q.strip() for q in requested.split(",")]
+
+    # Direct match
+    for q in candidates:
+        if q in available:
+            logger.info(f"Quality '{q}' is available")
+            return q
+
+    # Find the best candidate on the quality ladder for fallback
+    # Use the first candidate that's on the ladder as the target
+    target_idx = None
+    for q in candidates:
+        if q in _QUALITY_LADDER:
+            target_idx = _QUALITY_LADDER.index(q)
+            break
+
+    if target_idx is not None:
+        available_on_ladder = [q for q in available if q in _QUALITY_LADDER]
+        if available_on_ladder:
+            # Sort by distance from target, preferring lower resolution
+            def sort_key(q):
+                idx = _QUALITY_LADDER.index(q)
+                distance = abs(idx - target_idx)
+                prefer_lower = 0 if idx <= target_idx else 1
+                return (distance, prefer_lower)
+
+            best = min(available_on_ladder, key=sort_key)
+            logger.info(
+                f"Requested quality '{requested}' unavailable, "
+                f"falling back to '{best}'"
+            )
+            return best
+
+    # Nothing on the ladder matched — use 'best' if available
+    if "best" in available:
+        logger.info(f"Requested quality '{requested}' unavailable, falling back to 'best'")
+        return "best"
+
+    # Last resort: return original and let streamlink handle it
+    return candidates[0]
+
+
 def download_vod(url: str, output_path: Path, quality: str = "worst") -> bool:
     """
     Download a Twitch VOD to output_path using streamlink.
@@ -58,8 +138,9 @@ def download_vod(url: str, output_path: Path, quality: str = "worst") -> bool:
     try:
         result = subprocess.run(
             ["streamlink", url, quality, "--output", str(output_path)],
-            text=True,
-            timeout=7200,  # 2 hours — long VODs are legitimate
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=21600,  # 6 hours — long VODs at low quality are legitimate
         )
     except subprocess.TimeoutExpired:
         logger.error("streamlink timed out after 2 hours")
@@ -99,36 +180,55 @@ def download_vod_with_progress(
         stderr=subprocess.DEVNULL,  # MUST be DEVNULL — PIPE deadlocks (see 35320f7)
     )
 
-    # Estimate expected file size from quality:
-    # worst (~400kbps) = ~180MB/hr, 720p (~2.5Mbps) = ~1.1GB/hr, best (~6Mbps) = ~2.7GB/hr
-    # We don't know the duration, so we estimate from file growth rate.
-    # After 10s of download, extrapolate total size from growth rate.
-    estimated_total = 0
-    last_size = 0
+    # Track download progress via file size growth.
+    # We measure the download rate over the first few seconds, then use
+    # an asymptotic curve so progress always moves forward but never
+    # overshoots. This works regardless of final file size.
+    start_time = time.monotonic()
+    rate = 0.0  # bytes/sec, measured from actual growth
+    last_pct = 0.0
 
     while proc.poll() is None:
         time.sleep(2)
-        if output_path.exists():
-            current_size = output_path.stat().st_size
-            if estimated_total == 0 and current_size > 1_000_000:
-                # After 5MB, estimate total from growth rate
-                # Assume we're ~10s in, typical VOD is 1-4 hours
-                # Use a rough heuristic: multiply current rate by expected duration
-                # For now, just use a reasonable estimate: 500MB for worst, 2GB for 720p
-                if "audio_only" in quality:
-                    estimated_total = 80_000_000  # ~80MB (audio only)
-                elif "worst" in quality:
-                    estimated_total = 500_000_000  # ~500MB
-                elif "best" in quality:
-                    estimated_total = 3_000_000_000  # ~3GB
-                else:
-                    estimated_total = 1_500_000_000  # ~1.5GB
+        elapsed = time.monotonic() - start_time
 
-            if estimated_total > 0 and progress_callback:
-                pct = min(current_size / estimated_total, 0.95)
-                progress_callback(pct)
+        if not output_path.exists():
+            # File not created yet — show we're alive
+            if progress_callback and elapsed < 10:
+                progress_callback(min(elapsed / 200, 0.04))
+            continue
 
-            last_size = current_size
+        current_size = output_path.stat().st_size
+
+        # Update rate estimate (exponential moving average for stability)
+        if elapsed > 4 and current_size > 0:
+            instant_rate = current_size / elapsed
+            rate = instant_rate if rate == 0 else rate * 0.7 + instant_rate * 0.3
+
+        # Progress: logarithmic curve that always advances.
+        # pct = log(1 + elapsed/30) / log(1 + expected_total/30)
+        # We assume the download takes at most 10 minutes (600s).
+        # This gives smooth progress: ~30% at 60s, ~60% at 180s, ~80% at 360s.
+        # At completion, process exits and we emit 1.0.
+        import math as _math
+        if rate > 0 and current_size > 100_000:
+            # Scale expected total based on rate — faster rate = shorter expected
+            # Audio (~3MB/s) typically finishes in 1-4 min.
+            # Video (~1MB/s) might take 10-30 min.
+            expected_total = max(300, 60 + elapsed * 0.5)
+            pct = min(_math.log(1 + elapsed / 30) / _math.log(1 + expected_total / 30), 0.95)
+        elif current_size > 0:
+            # No rate yet — slow ramp
+            pct = min(elapsed / 300, 0.10)
+        else:
+            pct = min(elapsed / 600, 0.03)
+
+        # Never go backwards
+        pct = max(pct, last_pct)
+        last_pct = pct
+
+        if progress_callback:
+            progress_callback(pct)
 
     if proc.returncode != 0:
         logger.error(f"streamlink failed (exit code {proc.returncode})")
@@ -140,59 +240,46 @@ def download_vod_with_progress(
     return output_path.exists() and output_path.stat().st_size > 0
 
 
-class BackgroundDownload:
-    """Handle for a VOD download running in a background thread."""
-
-    def __init__(self, thread: threading.Thread, output_path: Path):
-        self.thread = thread
-        self.output_path = output_path
-        self.success: Optional[bool] = None
-        self.error: Optional[str] = None
-        # Set by caller for post-download cleanup and remux
-        self.tmp_dir: Optional[str] = None
-        self.project_dir: Optional[Path] = None
-        self.ffmpeg_path: str = "ffmpeg"
-
-    def join(self, timeout: Optional[float] = None) -> bool:
-        """Wait for the download to finish. Returns True on success."""
-        self.thread.join(timeout=timeout)
-        if self.thread.is_alive():
-            self.error = "Download timed out"
-            return False
-        return self.success is True
-
-    @property
-    def is_alive(self) -> bool:
-        return self.thread.is_alive()
-
-
-def download_vod_background(
-    url: str,
-    output_path: Path,
-    quality: str = "480p,480p60,worst",
-) -> BackgroundDownload:
+def fetch_vod_metadata(video_id: str) -> Optional[dict]:
     """
-    Start a VOD download in a background thread.
+    Fetch metadata (title, language) for a Twitch VOD via the GQL API.
 
-    Returns a BackgroundDownload handle. Call .join() to wait for completion.
+    Args:
+        video_id: Numeric Twitch video ID
+
+    Returns:
+        Dict with "title" and "language" keys, or None on failure.
+        Language is a BCP-47 code (e.g. "fr", "en", "es").
     """
-    handle = BackgroundDownload(thread=threading.Thread(daemon=True), output_path=output_path)
+    try:
+        import requests
+    except ImportError:
+        logger.warning("requests not installed — cannot fetch VOD metadata")
+        return None
 
-    def _run():
-        try:
-            ok = download_vod(url, output_path, quality=quality)
-            handle.success = ok
-            if not ok:
-                handle.error = "streamlink download failed"
-        except Exception as e:
-            handle.success = False
-            handle.error = str(e)
-            logger.error(f"Background video download failed: {e}")
+    query = {
+        "query": f'{{ video(id: "{video_id}") {{ title language owner {{ displayName }} }} }}',
+    }
 
-    handle.thread = threading.Thread(target=_run, daemon=True)
-    handle.thread.start()
-    logger.info(f"Background video download started: {url} (quality: {quality})")
-    return handle
+    try:
+        resp = requests.post(
+            _TWITCH_GQL_URL,
+            json=query,
+            headers={"Client-ID": _TWITCH_CLIENT_ID},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        video = data["data"]["video"]
+        owner = video.get("owner") or {}
+        return {
+            "title": video["title"],
+            "language": video.get("language"),
+            "channel": owner.get("displayName"),
+        }
+    except Exception as e:
+        logger.warning(f"Failed to fetch VOD metadata: {e}")
+        return None
 
 
 def download_chat(video_id: str, output_path: Path) -> bool:
