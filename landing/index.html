@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VodTool — Map your stream before you edit it</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0A0A;
+    --surface: #111111;
+    --border: #222222;
+    --text: #C9C9C9;
+    --text-bright: #FFFFFF;
+    --text-muted: #555555;
+    --text-dim: #444444;
+    --accent: #6B8AFF;
+    --success: #4ADE80;
+    --warning: #FFB830;
+    --error: #FF3B3B;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', Monaco, 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+
+  /* Nav */
+  nav {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 64px;
+    font-size: 13px;
+  }
+  nav a {
+    color: var(--text-muted);
+    text-decoration: none;
+  }
+  nav a:hover {
+    color: var(--text);
+  }
+
+  /* ASCII logo */
+  .ascii-logo {
+    color: var(--text-bright);
+    font-size: 10px;
+    line-height: 1.15;
+    white-space: pre;
+    margin-bottom: 16px;
+    overflow-x: auto;
+    letter-spacing: -0.5px;
+  }
+
+  /* Tagline */
+  .tagline {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-bottom: 64px;
+  }
+
+  /* Section headers */
+  h2 {
+    color: var(--text-bright);
+    font-size: 15px;
+    font-weight: 500;
+    margin-bottom: 16px;
+    margin-top: 64px;
+  }
+
+  p {
+    margin-bottom: 16px;
+  }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+
+  /* Download section */
+  .download {
+    margin-top: 48px;
+    margin-bottom: 64px;
+  }
+
+  .download-links {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .download-links a {
+    color: var(--accent);
+    font-size: 13px;
+  }
+
+  .download-links .platform {
+    color: var(--text-muted);
+    display: inline-block;
+    width: 180px;
+  }
+
+  /* Code blocks */
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 16px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  code {
+    font-family: inherit;
+  }
+
+  .comment { color: var(--text-dim); }
+  .string { color: var(--success); }
+  .key { color: var(--accent); }
+  .number { color: var(--warning); }
+  .type { color: #C792EA; }
+  .prompt { color: var(--text-muted); }
+
+  /* Pipeline steps */
+  .pipeline {
+    margin: 16px 0 32px;
+  }
+  .pipeline-step {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .pipeline-step .num {
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+  .pipeline-step .label {
+    color: var(--text-bright);
+    font-weight: 500;
+  }
+  .pipeline-step .desc {
+    color: var(--text-muted);
+  }
+
+  /* Footer */
+  footer {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+
+  footer a {
+    color: var(--text-muted);
+  }
+
+  /* Requirements list */
+  ul {
+    list-style: none;
+    margin-bottom: 16px;
+  }
+  ul li {
+    padding-left: 0;
+    margin-bottom: 4px;
+  }
+  ul li::before {
+    content: "- ";
+    color: var(--text-dim);
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    .ascii-logo {
+      font-size: 6.5px;
+      letter-spacing: -0.3px;
+    }
+    .page {
+      padding: 32px 16px 64px;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<nav>
+  <span>videotool</span>
+  <span>v0.1.0-beta</span>
+</nav>
+
+<div class="ascii-logo"> 
+░██    ░██ ░██       ░██                       ░██████████                      ░██ 
+░██    ░██           ░██                           ░██                          ░██ 
+░██    ░██ ░██ ░████████  ░███████   ░███████      ░██     ░███████   ░███████  ░██ 
+░██    ░██ ░██░██    ░██ ░██    ░██ ░██    ░██     ░██    ░██    ░██ ░██    ░██ ░██ 
+ ░██  ░██  ░██░██    ░██ ░█████████ ░██    ░██     ░██    ░██    ░██ ░██    ░██ ░██ 
+  ░██░██   ░██░██   ░███ ░██        ░██    ░██     ░██    ░██    ░██ ░██    ░██ ░██ 
+   ░███    ░██ ░█████░██  ░███████   ░███████      ░██     ░███████   ░███████  ░██ 
+                                                                                        
+    </div>
+
+<p class="tagline">A tool that maps your stream before you edit it. Try the beta.</p>
+
+<div class="download">
+  <h2>Download</h2>
+  <div class="download-links">
+    <div><span class="platform">macOS (Apple Silicon)</span> <a href="#">vodtool-0.1.0-aarch64.dmg</a></div>
+    <div><span class="platform">macOS (Intel)</span> <a href="#">vodtool-0.1.0-x64.dmg</a></div>
+    <div><span class="platform">Windows</span> <a href="#">vodtool-0.1.0-x64.msi</a></div>
+  </div>
+  <!-- <p style="margin-top: 12px; color: var(--text-dim); font-size: 11px;">Requires <a href="https://console.groq.com">GROQ_API_KEY</a> (free) and <a href="https://console.anthropic.com">ANTHROPIC_API_KEY</a> for beat detection.</p> -->
+</div>
+
+<h2>How it works</h2>
+
+<p>VodTool runs a 3-step pipeline on any stream VOD:</p>
+
+<div class="pipeline">
+  <div class="pipeline-step">
+    <span class="num">1.</span>
+    <div><span class="label">Ingest</span> <span class="desc">— downloads the video (Twitch URL or local file), extracts audio</span></div>
+  </div>
+  <div class="pipeline-step">
+    <span class="num">2.</span>
+    <div><span class="label">Transcribe</span> <span class="desc">— sends audio to Groq Whisper, returns full transcript</span></div>
+  </div>
+  <div class="pipeline-step">
+    <span class="num">3.</span>
+    <div><span class="label">Detect beats</span> <span class="desc">— Claude reads the full transcript, returns topics + narrative beats with timestamps and confidence scores</span></div>
+  </div>
+</div>
+
+<p>The output is a beat map: hook, build, peak, resolution — for every topic in your stream.</p>
+
+<h2>Output</h2>
+
+<pre><code>{
+  <span class="key">"topic_id"</span>: <span class="string">"coupe_cheveux"</span>,
+  <span class="key">"topic_label"</span>: <span class="string">"Les 4 phases d'une coupe"</span>,
+  <span class="key">"beats"</span>: [
+    {
+      <span class="key">"type"</span>: <span class="string">"build"</span>,
+      <span class="key">"start_s"</span>: <span class="number">1068.5</span>,
+      <span class="key">"end_s"</span>: <span class="number">1185.2</span>,
+      <span class="key">"confidence"</span>: <span class="number">0.75</span>,
+      <span class="key">"label"</span>: <span class="string">"Ça fait trois semaines, là c'est le pire stade de la repousse"</span>
+    },
+    {
+      <span class="key">"type"</span>: <span class="string">"peak"</span>,
+      <span class="key">"start_s"</span>: <span class="number">1406.8</span>,
+      <span class="key">"end_s"</span>: <span class="number">1767.3</span>,
+      <span class="key">"confidence"</span>: <span class="number">0.90</span>,
+      <span class="key">"label"</span>: <span class="string">"Théorie des 4 phases d'une coupe de cheveux"</span>
+    },
+    {
+      <span class="key">"type"</span>: <span class="string">"resolution"</span>,
+      <span class="key">"start_s"</span>: <span class="number">2066.4</span>,
+      <span class="key">"end_s"</span>: <span class="number">2869.8</span>,
+      <span class="key">"confidence"</span>: <span class="number">0.78</span>,
+      <span class="key">"label"</span>: <span class="string">"Débat sur les coupes longues, buzz cut et couvre-chefs de darons"</span>
+    }
+  ]
+}</code></pre>
+
+<h2>The app</h2>
+
+<p>Paste a Twitch VOD link or drop a video file. The pipeline runs and shows an interactive beat timeline with click-to-seek video playback. You see every topic, every narrative arc, with confidence scores.</p>
+
+<!-- <p>No cloud. Everything runs on your machine. Your API keys, your data.</p> -->
+
+<!-- <h2>Requirements</h2> -->
+
+<!-- <ul>
+  <li>ffmpeg installed and in PATH</li>
+  <li>yt-dlp installed and in PATH (for Twitch VOD downloads)</li>
+  <li><a href="https://console.groq.com">GROQ_API_KEY</a> — free tier transcription</li>
+  <li><a href="https://console.anthropic.com">ANTHROPIC_API_KEY</a> — beat detection (Claude Sonnet)</li>
+</ul> -->
+
+<!-- <h2>Open source</h2> -->
+
+<!-- <p>VodTool is free and open source. <a href="https://github.com/jbmoutout/vodtool">View on GitHub</a>.</p> -->
+
+
+<footer>
+  <a href="https://github.com/jbmoutout/vodtool">VideoTool</a> — MIT License
+</footer>
+
+</div>
+</body>
+</html>
