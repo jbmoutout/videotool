@@ -4,7 +4,6 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { onDestroy } from "svelte";
-  import Asteroids from "./Asteroids.svelte";
 
   // ── types ────────────────────────────────────────────────────────────────────
 
@@ -28,6 +27,13 @@
   interface ErrorMsg {
     error: string;
     step: number;
+  }
+
+  interface BeatsReadyMsg {
+    beats_ready: boolean;
+    project_dir: string;
+    topic_count: number;
+    beat_count: number;
   }
 
   // ── state ─────────────────────────────────────────────────────────────────────
@@ -153,6 +159,21 @@
         } else {
           // Same step, sub-status update (e.g. "extracting audio...")
           currentWaitMsg = e.payload.msg;
+        }
+      }),
+      listen<BeatsReadyMsg>("pipeline-beats-ready", async (e) => {
+        // Beats are ready but video is still downloading — open viewer in beats-only mode
+        targetPct = 90;
+        displayPct = 90;
+        try {
+          const port = await invoke<number>("start_viewer_server", {
+            projectDir: e.payload.project_dir,
+          });
+          const origin = encodeURIComponent(window.location.origin);
+          window.location.href = `http://127.0.0.1:${port}/?origin=${origin}&mode=beats-only`;
+        } catch (err) {
+          errorMsg = String(err);
+          screen = "import";
         }
       }),
       listen<DoneMsg>("pipeline-done", async (e) => {
@@ -295,7 +316,7 @@
 
     <div><button class="inline-btn" onclick={cancelPipeline}>[cancel]</button></div>
 
-    <div><Asteroids /></div>
+    
   </main>
 {/if}
 

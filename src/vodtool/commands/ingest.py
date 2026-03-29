@@ -13,9 +13,12 @@ from typing import Optional
 from rich.console import Console
 
 from vodtool.utils.twitch import (
+    BackgroundDownload,
     check_streamlink,
     download_chat,
     download_vod,
+    download_vod_background,
+    download_vod_with_progress,
     is_twitch_url,
     parse_twitch_video_id,
 )
@@ -193,68 +196,167 @@ def ingest_video(
     quality: str = "worst",
     download_progress_callback=None,
     status_callback=None,
-) -> Optional[Path]:
+) -> Optional[tuple[Path, Optional[BackgroundDownload]]]:
     """
     Ingest a video file or Twitch VOD URL and create a new project.
+
+    For Twitch URLs: downloads audio_only stream first (fast), starts 480p
+    video download in background. Returns immediately after audio is ready.
+
+    For local files: links source and extracts audio.wav as before.
 
     Args:
         input_video_path: Path to a local video file, or a Twitch VOD URL
         ffmpeg_path: Path to ffmpeg binary
-        quality: streamlink quality for Twitch downloads (default: 720p,720p60,best)
+        quality: streamlink quality for Twitch video downloads (default: worst)
+        download_progress_callback: Optional callable(pct: float) for download progress
+        status_callback: Optional callable(msg: str) for status messages
 
     Returns:
-        Path to the created project directory, or None if ingestion failed
+        (project_dir, background_download) tuple, or None if ingestion failed.
+        background_download is a BackgroundDownload handle for Twitch (None for local files).
+        The project's audio file is ready for transcription when this returns.
     """
     global _last_error
     _last_error = None
-    twitch_url = None
 
-    # Handle Twitch URL input
     if isinstance(input_video_path, str) and is_twitch_url(input_video_path):
-        twitch_url = input_video_path
-        video_id = parse_twitch_video_id(twitch_url)
-
-        if not check_streamlink():
-            _last_error = "streamlink not installed. Install with: pip install streamlink"
-            console.print("[red]Error: streamlink not installed.[/red]")
-            console.print("Install it with: [bold]pip install streamlink[/bold]")
-            return None
-
-        console.print(f"[cyan]Twitch VOD detected: video {video_id}[/cyan]")
-        console.print("[cyan]Downloading VOD (this may take a while)...[/cyan]")
-
-        tmp_dir = tempfile.mkdtemp(prefix="vodtool_twitch_")
-        tmp_video = Path(tmp_dir) / "vod.mp4"
-
-        if download_progress_callback:
-            from vodtool.utils.twitch import download_vod_with_progress
-
-            success = download_vod_with_progress(
-                twitch_url,
-                tmp_video,
-                quality=quality,
-                progress_callback=download_progress_callback,
-            )
-        else:
-            success = download_vod(twitch_url, tmp_video, quality=quality)
-        if not success:
-            _last_error = "Twitch VOD download failed"
-            console.print("[red]Error: VOD download failed.[/red]")
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return None
-
-        input_video_path = tmp_video
-
+        return _ingest_twitch(
+            input_video_path, ffmpeg_path, quality,
+            download_progress_callback, status_callback,
+        )
     else:
-        if isinstance(input_video_path, str):
-            input_video_path = Path(input_video_path)
-        tmp_dir = None
-        video_id = None
+        result = _ingest_local(input_video_path, ffmpeg_path, status_callback)
+        if result is None:
+            return None
+        return result, None
 
-    # Derive ffprobe path from ffmpeg path
+
+def _ingest_twitch(
+    twitch_url: str,
+    ffmpeg_path: str,
+    video_quality: str,
+    download_progress_callback,
+    status_callback,
+) -> Optional[tuple[Path, Optional[BackgroundDownload]]]:
+    """Ingest a Twitch VOD: audio_only first, video in background."""
+    global _last_error
+
+    video_id = parse_twitch_video_id(twitch_url)
+
+    if not check_streamlink():
+        _last_error = "streamlink not installed. Install with: pip install streamlink"
+        console.print("[red]Error: streamlink not installed.[/red]")
+        console.print("Install it with: [bold]pip install streamlink[/bold]")
+        return None
+
+    if not check_ffmpeg_available(ffmpeg_path):
+        _last_error = f"ffmpeg not found at: {ffmpeg_path}. Install with: brew install ffmpeg"
+        console.print(f"[red]Error: ffmpeg not found at: {ffmpeg_path}[/red]")
+        return None
+
+    # Generate project
+    project_id = uuid.uuid4().hex[:8]
+    projects_dir = get_projects_dir()
+    project_dir = projects_dir / project_id
+
+    try:
+        project_dir.mkdir(parents=True)
+        logger.info(f"Created project directory: {project_dir}")
+    except OSError as e:
+        _last_error = f"Cannot create project directory: {e}"
+        console.print(f"[red]Error: Cannot create project directory: {e}[/red]")
+        return None
+
+    # --- Phase A: Download audio_only stream (blocking, fast) ---
+    console.print(f"[cyan]Twitch VOD detected: video {video_id}[/cyan]")
+    console.print("[cyan]Downloading audio stream...[/cyan]")
+
+    audio_raw_path = project_dir / "audio_raw.ts"
+    if download_progress_callback:
+        audio_ok = download_vod_with_progress(
+            twitch_url, audio_raw_path, quality="audio_only",
+            progress_callback=download_progress_callback,
+        )
+    else:
+        audio_ok = download_vod(twitch_url, audio_raw_path, quality="audio_only")
+
+    if not audio_ok:
+        _last_error = "Twitch audio download failed"
+        console.print("[red]Error: Audio stream download failed.[/red]")
+        shutil.rmtree(project_dir, ignore_errors=True)
+        return None
+
+    logger.info(f"Audio stream downloaded: {audio_raw_path}")
+
+    # --- Phase B: Start video download in background ---
+    console.print("[cyan]Starting video download in background...[/cyan]")
+    tmp_dir = tempfile.mkdtemp(prefix="vodtool_twitch_video_")
+    tmp_video = Path(tmp_dir) / "vod.ts"
+
+    video_download = download_vod_background(
+        twitch_url, tmp_video, quality=f"480p,480p60,{video_quality}",
+    )
+
+    # Store tmp_dir path on the handle so CLI can clean up + remux later
+    video_download.tmp_dir = tmp_dir
+    video_download.project_dir = project_dir
+    video_download.ffmpeg_path = ffmpeg_path
+
+    # --- Extract duration from audio stream ---
+    ffprobe_path = get_ffprobe_path(ffmpeg_path)
+    duration = get_video_duration(audio_raw_path, ffprobe_path)
+    if duration:
+        logger.info(f"Audio duration: {duration:.2f} seconds")
+
+    # --- Download chat replay (non-blocking, fast) ---
+    if video_id:
+        chat_path = project_dir / "chat.json"
+        ok = download_chat(video_id, chat_path)
+        if ok:
+            msg_count = len(json.loads(chat_path.read_text()))
+            console.print(f"[dim]Chat: {msg_count} messages saved[/dim]")
+        else:
+            console.print(
+                "[yellow]Warning: Chat download failed — continuing without chat[/yellow]"
+            )
+
+    # --- Write metadata ---
+    metadata = {
+        "project_id": project_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_filename": twitch_url,
+        "source_path": twitch_url,
+        "duration_seconds": duration,
+        "audio_path": "audio_raw.ts",
+        "twitch_video_id": video_id,
+        "twitch_url": twitch_url,
+    }
+    meta_path = project_dir / "meta.json"
+    with meta_path.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, ensure_ascii=False)
+
+    console.print("\n[green]✓ Audio ready — transcription can begin[/green]")
+    console.print(f"[bold]Project path:[/bold] {project_dir.absolute()}")
+    if duration:
+        console.print(f"[dim]Duration: {duration:.1f}s ({duration/60:.1f} min)[/dim]")
+
+    return project_dir, video_download
+
+
+def _ingest_local(
+    input_video_path,
+    ffmpeg_path: str,
+    status_callback,
+) -> Optional[Path]:
+    """Ingest a local video file (original flow)."""
+    global _last_error
+
+    if isinstance(input_video_path, str):
+        input_video_path = Path(input_video_path)
+
     ffprobe_path = get_ffprobe_path(ffmpeg_path)
 
-    # Check ffmpeg availability
     if not check_ffmpeg_available(ffmpeg_path):
         _last_error = f"ffmpeg not found at: {ffmpeg_path}. Install with: brew install ffmpeg"
         console.print(
@@ -267,19 +369,16 @@ def ingest_video(
         console.print("\nOr specify a custom path with --ffmpeg-path")
         return None
 
-    # Validate input file (file exists, is a file, has video extension)
     error = validate_video_file(input_video_path)
     if error:
         _last_error = error
         console.print(f"[red]Error: {error}[/red]")
         return None
 
-    # Warn about large files
     warning = check_file_size(input_video_path)
     if warning:
         console.print(f"[yellow]Warning: {warning}[/yellow]")
 
-    # Get file size for disk space check
     try:
         file_size = input_video_path.stat().st_size
     except OSError as e:
@@ -287,16 +386,11 @@ def ingest_video(
         console.print(f"[red]Error: Cannot access file: {e}[/red]")
         return None
 
-    # Generate project ID
     project_id = uuid.uuid4().hex[:8]
     logger.info(f"Creating project with ID: {project_id}")
-
-    # Get projects directory (uses ~/.vodtool/projects)
     projects_dir = get_projects_dir()
 
-    # Check disk space before creating project
-    # Need space for: source copy + audio.wav (~10% of source) + safety margin
-    required_space = int(file_size * 1.2)  # 20% overhead for audio + temp files
+    required_space = int(file_size * 1.2)
     error = check_disk_space(projects_dir, required_space)
     if error:
         _last_error = error
@@ -317,59 +411,24 @@ def ingest_video(
         console.print(f"[red]Error: Cannot create project directory: {e}[/red]")
         return None
 
-    # Move or link source video (avoid duplicating multi-GB files)
-    source_path = project_dir / "source.mp4"
-
+    # Link source video
+    source_extension = input_video_path.suffix
+    source_filename = f"source{source_extension}"
+    source_path = project_dir / source_filename
     try:
-        if tmp_dir:
-            # Twitch download: streamlink outputs raw MPEG-TS (HLS segments).
-            # Browsers can't play TS natively, so remux to proper MP4.
-            console.print("[cyan]Remuxing to MP4...[/cyan]")
-            remuxed_path = project_dir / "source.mp4"
-            remux_result = subprocess.run(
-                [
-                    ffmpeg_path,
-                    "-i",
-                    str(input_video_path),
-                    "-c:v",
-                    "copy",
-                    "-c:a",
-                    "aac",
-                    "-y",
-                    str(remuxed_path),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if remux_result.returncode != 0:
-                logger.error(f"ffmpeg remux failed: {remux_result.stderr}")
-                _last_error = "Video remux to MP4 failed"
-                console.print("[red]Error: Video remux failed[/red]")
-                shutil.rmtree(project_dir, ignore_errors=True)
-                return None
-            source_path = remuxed_path
-        else:
-            # Local file: hardlink to avoid duplicating multi-GB files.
-            # Hardlinks survive if the original path is renamed/moved (unlike symlinks).
-            # Falls back to symlink if hardlink fails (cross-device or unsupported FS).
-            source_extension = input_video_path.suffix
-            source_filename = f"source{source_extension}"
-            source_path = project_dir / source_filename
-            console.print("[cyan]Linking source video...[/cyan]")
-            try:
-                source_path.hardlink_to(input_video_path.resolve())
-            except (OSError, NotImplementedError):
-                source_path.symlink_to(input_video_path.resolve())
+        console.print("[cyan]Linking source video...[/cyan]")
+        try:
+            source_path.hardlink_to(input_video_path.resolve())
+        except (OSError, NotImplementedError):
+            source_path.symlink_to(input_video_path.resolve())
         logger.info(f"Source video at: {source_path}")
     except (OSError, IOError, shutil.Error) as e:
         _last_error = f"Failed to set up video: {e}"
         console.print(f"[red]Error setting up video: {e}[/red]")
-        console.print("[dim]Cleaning up project directory...[/dim]")
         shutil.rmtree(project_dir, ignore_errors=True)
         return None
 
-    # Extract video duration
+    # Extract duration
     console.print("[cyan]Extracting metadata...[/cyan]")
     duration = get_video_duration(source_path, ffprobe_path)
     if duration:
@@ -386,9 +445,7 @@ def ingest_video(
             status_callback(f"extracting audio: {int(pct * 100)}%")
 
     if not extract_audio(
-        source_path,
-        audio_path,
-        ffmpeg_path,
+        source_path, audio_path, ffmpeg_path,
         duration=duration,
         progress_callback=_audio_progress if status_callback else None,
     ):
@@ -405,34 +462,15 @@ def ingest_video(
 
     logger.info(f"Extracted audio to: {audio_path}")
 
-    # Download chat replay for Twitch VODs
-    if twitch_url and video_id:
-        console.print("[cyan]Downloading chat replay...[/cyan]")
-        chat_path = project_dir / "chat.json"
-        ok = download_chat(video_id, chat_path)
-        if ok:
-            msg_count = len(json.loads(chat_path.read_text()))
-            console.print(f"[dim]Chat: {msg_count} messages saved[/dim]")
-        else:
-            console.print(
-                "[yellow]Warning: Chat download failed — continuing without chat[/yellow]"
-            )
-
-    # Clean up temp download dir
-    if tmp_dir:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-
-    # Create metadata
+    # Write metadata
     metadata = {
         "project_id": project_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "source_filename": twitch_url or input_video_path.name,
-        "source_path": twitch_url or str(input_video_path.absolute()),
+        "source_filename": input_video_path.name,
+        "source_path": str(input_video_path.absolute()),
         "duration_seconds": duration,
         "audio_path": "audio.wav",
-        **({"twitch_video_id": video_id, "twitch_url": twitch_url} if twitch_url else {}),
     }
-
     meta_path = project_dir / "meta.json"
     with meta_path.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)

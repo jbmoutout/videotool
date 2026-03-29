@@ -61,6 +61,26 @@ pub struct DoneMsg {
     pub beat_count: u32,
 }
 
+/// Beats-ready line: beats are done, video may still be downloading.
+/// {"beats_ready":true,"project_dir":"/...","topic_count":6,"beat_count":18}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BeatsReadyMsg {
+    pub beats_ready: bool,
+    pub project_dir: String,
+    #[serde(default)]
+    pub topic_count: u32,
+    #[serde(default)]
+    pub beat_count: u32,
+}
+
+/// Video-ready line: video download + remux complete.
+/// {"video_ready":true,"project_dir":"/..."}
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct VideoReadyMsg {
+    pub video_ready: bool,
+    pub project_dir: String,
+}
+
 /// Topic entry from topic_map_llm.json (subset of fields needed for UI).
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TopicEntry {
@@ -188,6 +208,14 @@ fn parse_and_emit(app: &AppHandle, line: &str) {
     if value.get("done").and_then(|v| v.as_bool()) == Some(true) {
         if let Ok(msg) = serde_json::from_value::<DoneMsg>(value) {
             let _ = app.emit("pipeline-done", msg);
+        }
+    } else if value.get("beats_ready").and_then(|v| v.as_bool()) == Some(true) {
+        if let Ok(msg) = serde_json::from_value::<BeatsReadyMsg>(value) {
+            let _ = app.emit("pipeline-beats-ready", msg);
+        }
+    } else if value.get("video_ready").and_then(|v| v.as_bool()) == Some(true) {
+        if let Ok(msg) = serde_json::from_value::<VideoReadyMsg>(value) {
+            let _ = app.emit("pipeline-video-ready", msg);
         }
     } else if value.get("error").is_some() {
         if let Ok(msg) = serde_json::from_value::<ErrorMsg>(value) {
