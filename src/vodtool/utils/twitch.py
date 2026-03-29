@@ -1,6 +1,5 @@
 """Twitch VOD and chat downloader utilities."""
 
-import contextlib
 import json
 import logging
 import re
@@ -96,7 +95,7 @@ def download_vod_with_progress(
     proc = subprocess.Popen(
         ["streamlink", url, quality, "--output", str(output_path)],
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,  # MUST be DEVNULL — PIPE deadlocks (see 35320f7)
     )
 
     # Estimate expected file size from quality:
@@ -129,13 +128,7 @@ def download_vod_with_progress(
             last_size = current_size
 
     if proc.returncode != 0:
-        stderr_output = ""
-        if proc.stderr:
-            with contextlib.suppress(Exception):
-                stderr_output = proc.stderr.read().decode(errors="replace")[:500]
-        logger.error(
-            f"streamlink failed: {stderr_output}" if stderr_output else "streamlink failed",
-        )
+        logger.error(f"streamlink failed (exit code {proc.returncode})")
         return False
 
     if progress_callback:
