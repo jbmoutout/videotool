@@ -52,7 +52,7 @@ class TestMainCallback:
         # Test requires invoking a command to access app.state
         # We'll use ingest and mock it to check the ffmpeg_path
         with mock.patch("vodtool.cli.ingest_video") as mock_ingest:
-            mock_ingest.return_value = Path("/tmp/project")
+            mock_ingest.return_value = (Path("/tmp/project"), None)
 
             result = runner.invoke(
                 app,
@@ -121,7 +121,7 @@ class TestIngestCommand:
     def test_succeeds_when_ingest_returns_project_dir(self):
         """CLI exits with code 0 when ingest_video succeeds."""
         with mock.patch("vodtool.cli.ingest_video") as mock_ingest:
-            mock_ingest.return_value = Path("/tmp/project")
+            mock_ingest.return_value = (Path("/tmp/project"), None)
 
             result = runner.invoke(app, ["ingest", "test.mp4"])
 
@@ -186,7 +186,7 @@ class TestPipelineJsonProgress:
             project.mkdir()
             topic_file = project / "topic_map_llm.json"
             topic_file.write_text('[{"topic_id":"t1"}]')
-            mock_ingest.return_value = project
+            mock_ingest.return_value = (project, None)
             mock_transcribe.return_value = project / "transcript_raw.json"
             mock_chunks.return_value = project / "chunks.json"
             mock_embed.return_value = project / "embeddings.sqlite"
@@ -214,7 +214,7 @@ class TestPipelineJsonProgress:
 
         with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
              mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe:
-            mock_ingest.return_value = tmp_path / "project"
+            mock_ingest.return_value = (tmp_path / "project", None)
             mock_transcribe.return_value = None  # step 2 fails
 
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
@@ -239,7 +239,7 @@ class TestPipelineJsonProgress:
             project.mkdir()
             topic_file = project / "topic_map_llm.json"
             topic_file.write_text('[{"topic_id":"t1"}]')
-            mock_ingest.return_value = project
+            mock_ingest.return_value = (project, None)
             mock_transcribe.return_value = project / "transcript_raw.json"
             mock_chunks.return_value = project / "chunks.json"
             mock_embed.return_value = project / "embeddings.sqlite"
@@ -268,7 +268,7 @@ class TestPipelineIpc:
         project.mkdir()
         topic_map = project / "topic_map_llm.json"
         topic_map.write_text('[{"topic_id":"topic_0000"},{"topic_id":"topic_0001"},{"topic_id":"topic_0002"}]')
-        mock_ingest.return_value = project
+        mock_ingest.return_value = (project, None)
         mock_transcribe.return_value = project / "transcript_raw.json"
         mock_chunks.return_value = project / "chunks.json"
         mock_embed.return_value = project / "embeddings.sqlite"
@@ -352,7 +352,7 @@ class TestPipelineIpc:
 
         with mock.patch("vodtool.cli.ingest_video") as mi, \
              mock.patch("vodtool.cli.transcribe_audio") as mt:
-            mi.return_value = tmp_path / "project"
+            mi.return_value = (tmp_path / "project", None)
             mt.return_value = None  # step 2 fails
 
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -114,7 +115,9 @@ def download_vod_with_progress(
                 # Assume we're ~10s in, typical VOD is 1-4 hours
                 # Use a rough heuristic: multiply current rate by expected duration
                 # For now, just use a reasonable estimate: 500MB for worst, 2GB for 720p
-                if "worst" in quality:
+                if "audio_only" in quality:
+                    estimated_total = 80_000_000  # ~80MB (audio only)
+                elif "worst" in quality:
                     estimated_total = 500_000_000  # ~500MB
                 elif "best" in quality:
                     estimated_total = 3_000_000_000  # ~3GB
@@ -135,6 +138,61 @@ def download_vod_with_progress(
         progress_callback(1.0)
 
     return output_path.exists() and output_path.stat().st_size > 0
+
+
+class BackgroundDownload:
+    """Handle for a VOD download running in a background thread."""
+
+    def __init__(self, thread: threading.Thread, output_path: Path):
+        self.thread = thread
+        self.output_path = output_path
+        self.success: Optional[bool] = None
+        self.error: Optional[str] = None
+        # Set by caller for post-download cleanup and remux
+        self.tmp_dir: Optional[str] = None
+        self.project_dir: Optional[Path] = None
+        self.ffmpeg_path: str = "ffmpeg"
+
+    def join(self, timeout: Optional[float] = None) -> bool:
+        """Wait for the download to finish. Returns True on success."""
+        self.thread.join(timeout=timeout)
+        if self.thread.is_alive():
+            self.error = "Download timed out"
+            return False
+        return self.success is True
+
+    @property
+    def is_alive(self) -> bool:
+        return self.thread.is_alive()
+
+
+def download_vod_background(
+    url: str,
+    output_path: Path,
+    quality: str = "480p,480p60,worst",
+) -> BackgroundDownload:
+    """
+    Start a VOD download in a background thread.
+
+    Returns a BackgroundDownload handle. Call .join() to wait for completion.
+    """
+    handle = BackgroundDownload(thread=threading.Thread(daemon=True), output_path=output_path)
+
+    def _run():
+        try:
+            ok = download_vod(url, output_path, quality=quality)
+            handle.success = ok
+            if not ok:
+                handle.error = "streamlink download failed"
+        except Exception as e:
+            handle.success = False
+            handle.error = str(e)
+            logger.error(f"Background video download failed: {e}")
+
+    handle.thread = threading.Thread(target=_run, daemon=True)
+    handle.thread.start()
+    logger.info(f"Background video download started: {url} (quality: {quality})")
+    return handle
 
 
 def download_chat(video_id: str, output_path: Path) -> bool:
