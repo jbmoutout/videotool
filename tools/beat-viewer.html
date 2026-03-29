@@ -19,6 +19,15 @@
   .beat { position: absolute; top: 3px; height: 22px; border-radius: 2px; cursor: pointer; opacity: 0.85; transition: opacity 0.1s; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; line-height: 22px; padding: 0 4px; color: rgba(0,0,0,0.7); min-width: 2px; }
   .beat:hover { opacity: 1; z-index: 10; }
 
+  /* Content beats */
+  .beat[data-type="highlight"]  { background: #c05050; }
+  .beat[data-type="core"]       { background: #c0a030; }
+  .beat[data-type="context"]    { background: #4080c0; }
+  /* Structural beats */
+  .beat[data-type="chat"]       { background: #8060c0; }
+  .beat[data-type="transition"] { background: #40a060; }
+  .beat[data-type="break"]      { background: #333333; }
+  /* Legacy fallbacks */
   .beat[data-type="hook"]       { background: #c05050; }
   .beat[data-type="build"]      { background: #4080c0; }
   .beat[data-type="peak"]       { background: #c0a030; }
@@ -48,10 +57,12 @@
 <video id="player" controls></video>
 
 <div class="legend">
-  <div class="legend-item"><div class="legend-swatch" style="background:#c05050"></div>hook</div>
-  <div class="legend-item"><div class="legend-swatch" style="background:#4080c0"></div>build</div>
-  <div class="legend-item"><div class="legend-swatch" style="background:#c0a030"></div>peak</div>
-  <div class="legend-item"><div class="legend-swatch" style="background:#40a060"></div>resolution</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#c05050"></div>highlight</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#c0a030"></div>core</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#4080c0"></div>context</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#8060c0"></div>chat</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#40a060"></div>transition</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#333333"></div>break</div>
 </div>
 
 <div id="timeline">
