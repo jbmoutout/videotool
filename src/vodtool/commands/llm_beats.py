@@ -1,7 +1,7 @@
 """LLM-based narrative beat detection for vodtool.
 
 Sends the full transcript (with timestamps) to Claude in a single call
-and receives topic segmentation + narrative beats (hook/build/peak/resolution).
+and receives topic segmentation + beats (highlight/core/context/chat/transition/break).
 
 This is the simplified pipeline: no chunks, no embeddings, no llm-topics.
 The LLM does topic detection and beat detection in one pass.
@@ -21,7 +21,7 @@ from vodtool.utils.validation import validate_project_path
 console = Console()
 logger = logging.getLogger("vodtool")
 
-VALID_BEAT_TYPES = {"hook", "build", "peak", "resolution"}
+VALID_BEAT_TYPES = {"highlight", "core", "context", "chat", "transition", "break"}
 LLM_MODEL = "claude-sonnet-4-6"
 LLM_TIMEOUT = 300  # 5 minutes — long transcripts need more time
 MAX_RETRIES = 1
@@ -49,42 +49,71 @@ def _format_transcript(segments: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_beat_prompt(segments: list[dict]) -> str:
-    """Build the narrative beat detection prompt from transcript segments."""
+def _build_beat_prompt(segments: list[dict], stream_duration: float) -> str:
+    """Build the beat detection prompt from transcript segments."""
     transcript_text = _format_transcript(segments)
 
-    return f"""You are a video editor's assistant analyzing a stream transcript.
+    return f"""You are a video editor's assistant. Your job is to segment a live stream
+transcript into a COMPLETE timeline of topics and beats.
 
-For each topic below, identify the NARRATIVE BEATS — the structural
-moments that define how a YouTube video should be cut from this material.
+This is a react/discussion stream — the host reads articles, reacts to
+media, gives political commentary, and interacts with chat.
 
-BEAT TYPES:
-- HOOK: The most attention-grabbing moment. A provocative statement,
-  surprising claim, or emotional peak that would make a viewer click.
-  This is where the YouTube video should START.
-- BUILD: Context and setup that gives the hook meaning. Background
-  information, introductions, framing.
-- PEAK: The highest-value segment — the core argument, the main
-  discussion, the meat of the topic. This is what viewers came for.
-- RESOLUTION: Wind-down, conclusions, transitions to next topic.
-  Often skippable for YouTube.
+CRITICAL RULE — FULL COVERAGE:
+You must create topics that tile the ENTIRE stream from 0s to {stream_duration:.0f}s.
+- The first topic's first beat must start at 0.0
+- The last topic's last beat must end at {stream_duration:.0f}
+- Every second of the stream must belong to exactly one topic
+- Topics must be contiguous: topic N's last beat end_s = topic N+1's first beat start_s
+This means you MUST create topics for intros, BRB breaks, chat/donation
+sessions, transitions, and stream closings — not just the "interesting"
+discussion topics.
 
-RULES:
-- Not every topic has all 4 beat types. A short tangent might only
-  have a hook and peak.
-- The hook is NOT always at the beginning. Often the most interesting
-  moment is in the middle.
-- Beats can overlap (a hook can also be the start of a peak).
-- CRITICAL: Beats must tile the entire topic with NO GAPS. Every second
-  of the topic must belong to a beat. If a topic runs from 400s to 900s,
-  the beats must cover 400s-900s continuously. A beat's end_s must equal
-  the next beat's start_s within the same topic.
-- Return timestamps as seconds from stream start.
-- Include a confidence score (0.0-1.0) for each beat.
-- Include a short label describing what happens in each beat.
-- Generate topic_label as a short punchy title (3-6 words) using the
-  host's own slang, expressions, and vocabulary from the transcript.
+TOPIC RULES:
+- Each topic is a coherent subject or activity block displayed as a row
+  in the editor timeline.
+- Generate topic_label as a short punchy title (3-6 words). Borrow the
+  host's actual words, verdict, or reaction from the transcript — not a
+  neutral description of the subject. The title should capture the host's
+  attitude, not just the topic.
+- A topic should be at least 2 minutes. Merge very short tangents into
+  the surrounding topic rather than creating tiny standalone topics.
+- Create separate topics for: stream intro/countdown, BRB breaks, extended
+  chat/donation sessions, transitions between subjects, and stream outro.
 - Generate all labels and topic titles in the same language as the transcript.
+
+BEAT TYPES — each beat is a segment within a topic:
+
+  Content beats (editor evaluates for the final cut):
+  - highlight: Clip-worthy moment. Provocative take, emotional peak,
+    surprising claim, powerful argument.
+  - core: Substantive discussion. Main analysis, key argument, the meat
+    of the reaction or commentary.
+  - context: Reading source material, setup, background. Needed to
+    understand the core but lower energy.
+
+  Structural beats (editor trims or cuts):
+  - chat: Viewer interaction, reading donations, Q&A, tangents driven
+    by chat rather than the topic.
+  - transition: Moving between topics, wrapping up, "anyway let's talk
+    about...", pulling up the next article.
+  - break: BRB screens, silence, music-only, intro countdowns, outro/raid,
+    technical difficulties.
+
+BEAT RULES:
+- Beats tile continuously within each topic: a beat's end_s = next beat's start_s.
+- Not every topic has all beat types. A BRB is just one "break" beat.
+  A chat session might be just "chat" beats. That's fine.
+- Include a confidence score (0.0-1.0) and a short label per beat.
+  Beat labels should borrow the host's actual words, or reactions from
+  the transcript - not a neutral summary of the subject.
+- Timestamps in seconds from stream start.
+
+SELF-CHECK before returning:
+1. First beat starts at 0.0?
+2. Last beat ends at {stream_duration:.0f}?
+3. No gaps between consecutive topics?
+If any check fails, fix it by adding or extending topics.
 
 OUTPUT FORMAT: Return ONLY valid JSON matching this schema:
 {{
@@ -93,7 +122,7 @@ OUTPUT FORMAT: Return ONLY valid JSON matching this schema:
       "topic_id": "...",
       "topic_label": "...",
       "beats": [
-        {{"type": "hook|build|peak|resolution", "start_s": N, "end_s": N,
+        {{"type": "highlight|core|context|chat|transition|break", "start_s": N, "end_s": N,
          "confidence": 0.0-1.0, "label": "short description"}}
       ]
     }}
@@ -109,7 +138,7 @@ def validate_beats(beats_data: dict, stream_duration: float) -> dict:
     Validate and clean beats data from LLM output.
 
     Enforces:
-    - Valid beat types (hook/build/peak/resolution)
+    - Valid beat types (highlight/core/context/chat/transition/break)
     - start_s < end_s
     - Timestamps clamped to [0, stream_duration]
     - Confidence in [0.0, 1.0]
@@ -165,22 +194,53 @@ def validate_beats(beats_data: dict, stream_duration: float) -> dict:
                 confidence = 0.5
             confidence = max(0.0, min(1.0, confidence))
 
-            cleaned_beats.append({
-                "type": beat_type,
-                "start_s": round(start_s, 2),
-                "end_s": round(end_s, 2),
-                "confidence": round(confidence, 2),
-                "label": str(beat.get("label", "")),
-            })
+            cleaned_beats.append(
+                {
+                    "type": beat_type,
+                    "start_s": round(start_s, 2),
+                    "end_s": round(end_s, 2),
+                    "confidence": round(confidence, 2),
+                    "label": str(beat.get("label", "")),
+                }
+            )
 
         if cleaned_beats:
-            cleaned_topics.append({
-                "topic_id": topic_id,
-                "topic_label": topic_label,
-                "beats": cleaned_beats,
-            })
+            cleaned_topics.append(
+                {
+                    "topic_id": topic_id,
+                    "topic_label": topic_label,
+                    "beats": cleaned_beats,
+                }
+            )
 
     return {"beats": cleaned_topics}
+
+
+def _compute_gaps(beats_data: dict, stream_duration: float) -> list[dict]:
+    """Find uncovered time ranges in the beat timeline."""
+    covered = []
+    for topic in beats_data["beats"]:
+        for beat in topic["beats"]:
+            covered.append((beat["start_s"], beat["end_s"]))
+    covered.sort()
+
+    merged = []
+    for start, end in covered:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+
+    gaps = []
+    prev_end = 0.0
+    for start, end in merged:
+        if start > prev_end + 1.0:
+            gaps.append({"start_s": round(prev_end, 2), "end_s": round(start, 2)})
+        prev_end = end
+    if prev_end < stream_duration - 1.0:
+        gaps.append({"start_s": round(prev_end, 2), "end_s": round(stream_duration, 2)})
+
+    return gaps
 
 
 def _parse_beats_response(response_text: str) -> dict:
@@ -193,7 +253,7 @@ def _parse_beats_response(response_text: str) -> dict:
         first_brace = response_text.find("{")
         last_brace = response_text.rfind("}")
         if first_brace != -1 and last_brace != -1:
-            response_text = response_text[first_brace:last_brace + 1]
+            response_text = response_text[first_brace : last_brace + 1]
 
     try:
         data = json.loads(response_text)
@@ -267,7 +327,7 @@ def detect_beats(
     logger.info(f"Loaded {len(segments)} transcript segments, duration: {stream_duration:.0f}s")
 
     # Build prompt
-    prompt = _build_beat_prompt(segments)
+    prompt = _build_beat_prompt(segments, stream_duration)
     token_estimate = len(prompt) // 4
     logger.info(f"Prompt size: ~{token_estimate} tokens")
 
@@ -341,9 +401,15 @@ def detect_beats(
         _last_error = "Failed to write beats.json"
         return None
 
+    # Compute coverage
+    gaps = _compute_gaps(beats_data, stream_duration)
+    total_gap = sum(g["end_s"] - g["start_s"] for g in gaps)
+    coverage_pct = (1 - total_gap / stream_duration) * 100 if stream_duration > 0 else 0
+
     console.print(f"\n[green]✓ Beat detection complete![/green]")
     console.print(f"[bold]Topics:[/bold] {topic_count}")
     console.print(f"[bold]Beats:[/bold] {beat_count}")
+    console.print(f"[bold]Coverage:[/bold] {coverage_pct:.1f}%")
     console.print(f"[bold]Time:[/bold] {elapsed:.1f}s")
     console.print(f"[bold]Output:[/bold] {output_path}")
 
