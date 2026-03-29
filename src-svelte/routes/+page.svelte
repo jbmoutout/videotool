@@ -4,6 +4,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { onDestroy } from "svelte";
+  import Asteroids from "./Asteroids.svelte";
 
   // ── types ────────────────────────────────────────────────────────────────────
 
@@ -86,18 +87,18 @@
 
   const WAIT_MSGS: Record<number, string[]> = {
     2: [
-      "converting speech to text...",
-      "whisper is listening...",
-      "every word counts...",
-      "decoding the stream...",
+      "Transcribing audio…",
+      "Running speech-to-text…",
+      "Decoding speech…",
+      "Aligning transcript…",
+      "Processing audio stream…",
     ],
     3: [
-      "reading the transcript...",
-      "finding the narrative arcs...",
-      "where's the hook...",
-      "mapping the terrain...",
-      "looking for the peak...",
-      "almost there...",
+      "Detecting narrative beats…",
+      "Analyzing structure…",
+      "Identifying key moments…",
+      "Segmenting story arcs…",
+      "Mapping hook to resolution…",
     ],
   };
 
@@ -293,6 +294,8 @@
     <p class="dim pct">{Math.round(displayPct)}%</p>
 
     <div><button class="inline-btn" onclick={cancelPipeline}>[cancel]</button></div>
+
+    <div><Asteroids /></div>
   </main>
 {/if}
 
