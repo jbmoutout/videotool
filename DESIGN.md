@@ -1,7 +1,7 @@
 # Design System — VodTool
 
 ## Product Context
-- **What this is:** Desktop app that maps narrative beats (hook, build, peak, resolution) on stream VOD timelines
+- **What this is:** Desktop app that maps beats (highlight, core, context, chat, transition, break) on stream VOD timelines
 - **Who it's for:** Twitch streamers and their editors who need to cut highlights faster
 - **Space/industry:** Streaming tools, VOD editing — peers: Eklipse, StreamLadder, Streamlabs Highlighter
 - **Project type:** Tauri desktop app (Svelte frontend, Rust backend)
