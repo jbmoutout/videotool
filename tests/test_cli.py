@@ -1,5 +1,6 @@
 """Tests for vodtool.cli module."""
 
+import json
 from pathlib import Path
 from unittest import mock
 
@@ -52,7 +53,7 @@ class TestMainCallback:
         # Test requires invoking a command to access app.state
         # We'll use ingest and mock it to check the ffmpeg_path
         with mock.patch("vodtool.cli.ingest_video") as mock_ingest:
-            mock_ingest.return_value = (Path("/tmp/project"), None)
+            mock_ingest.return_value = Path("/tmp/project")
 
             result = runner.invoke(
                 app,
@@ -121,7 +122,7 @@ class TestIngestCommand:
     def test_succeeds_when_ingest_returns_project_dir(self):
         """CLI exits with code 0 when ingest_video succeeds."""
         with mock.patch("vodtool.cli.ingest_video") as mock_ingest:
-            mock_ingest.return_value = (Path("/tmp/project"), None)
+            mock_ingest.return_value = Path("/tmp/project")
 
             result = runner.invoke(app, ["ingest", "test.mp4"])
 
@@ -186,7 +187,7 @@ class TestPipelineJsonProgress:
             project.mkdir()
             topic_file = project / "topic_map_llm.json"
             topic_file.write_text('[{"topic_id":"t1"}]')
-            mock_ingest.return_value = (project, None)
+            mock_ingest.return_value = project
             mock_transcribe.return_value = project / "transcript_raw.json"
             mock_chunks.return_value = project / "chunks.json"
             mock_embed.return_value = project / "embeddings.sqlite"
@@ -214,7 +215,7 @@ class TestPipelineJsonProgress:
 
         with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
              mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe:
-            mock_ingest.return_value = (tmp_path / "project", None)
+            mock_ingest.return_value = tmp_path / "project"
             mock_transcribe.return_value = None  # step 2 fails
 
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
@@ -239,7 +240,7 @@ class TestPipelineJsonProgress:
             project.mkdir()
             topic_file = project / "topic_map_llm.json"
             topic_file.write_text('[{"topic_id":"t1"}]')
-            mock_ingest.return_value = (project, None)
+            mock_ingest.return_value = project
             mock_transcribe.return_value = project / "transcript_raw.json"
             mock_chunks.return_value = project / "chunks.json"
             mock_embed.return_value = project / "embeddings.sqlite"
@@ -268,7 +269,7 @@ class TestPipelineIpc:
         project.mkdir()
         topic_map = project / "topic_map_llm.json"
         topic_map.write_text('[{"topic_id":"topic_0000"},{"topic_id":"topic_0001"},{"topic_id":"topic_0002"}]')
-        mock_ingest.return_value = (project, None)
+        mock_ingest.return_value = project
         mock_transcribe.return_value = project / "transcript_raw.json"
         mock_chunks.return_value = project / "chunks.json"
         mock_embed.return_value = project / "embeddings.sqlite"
@@ -352,7 +353,7 @@ class TestPipelineIpc:
 
         with mock.patch("vodtool.cli.ingest_video") as mi, \
              mock.patch("vodtool.cli.transcribe_audio") as mt:
-            mi.return_value = (tmp_path / "project", None)
+            mi.return_value = tmp_path / "project"
             mt.return_value = None  # step 2 fails
 
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
@@ -394,3 +395,268 @@ class TestExportCommand:
             result = runner.invoke(app, ["export", "/tmp/project"])
 
             assert result.exit_code == 1
+
+
+class TestBeatsJsonProgress:
+    """Tests for vodtool beats --json-progress output."""
+
+    def _mock_successful_beats(self, tmp_path, mock_ingest, mock_transcribe,
+                                mock_detect):
+        """Set up all beats step mocks for a successful run."""
+        project = tmp_path / "project"
+        project.mkdir()
+        beats_file = project / "beats.json"
+        beats_file.write_text(json.dumps({
+            "beats": [
+                {
+                    "topic": "Intro",
+                    "beats": [
+                        {"type": "hook", "start_s": 0, "end_s": 60},
+                        {"type": "build", "start_s": 60, "end_s": 120},
+                    ],
+                },
+                {
+                    "topic": "Main",
+                    "beats": [
+                        {"type": "peak", "start_s": 120, "end_s": 180},
+                    ],
+                },
+            ]
+        }))
+        mock_ingest.return_value = project
+        mock_transcribe.return_value = project / "transcript_raw.json"
+        mock_detect.return_value = beats_file
+
+    def test_no_beats_ready_event(self, tmp_path):
+        """beats_ready is no longer emitted — only done."""
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            self._mock_successful_beats(tmp_path, mi, mt, md)
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        assert result.exit_code == 0
+        lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        assert not any(obj.get("beats_ready") for obj in lines)
+        assert not any(obj.get("video_ready") for obj in lines)
+
+    def test_done_event_emitted(self, tmp_path):
+        """On success, done event with beat_count and topic_count is emitted."""
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            self._mock_successful_beats(tmp_path, mi, mt, md)
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        assert result.exit_code == 0
+        lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        done_lines = [obj for obj in lines if obj.get("done") is True]
+        assert len(done_lines) == 1
+        done = done_lines[0]
+        assert done["topic_count"] == 2
+        assert done["beat_count"] == 3
+        assert "project_dir" in done
+
+    def test_three_progress_steps(self, tmp_path):
+        """Beats pipeline emits 3 step progress events."""
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            self._mock_successful_beats(tmp_path, mi, mt, md)
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        assert result.exit_code == 0
+        lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        progress_lines = [
+            obj for obj in lines
+            if "step" in obj and "done" not in obj and "error" not in obj
+        ]
+        assert len(progress_lines) == 3
+        for obj in progress_lines:
+            assert obj["total"] == 3
+
+    def test_step1_msg_says_downloading_video(self, tmp_path):
+        """Step 1 sub-events say 'Downloading video' not 'Downloading audio'."""
+        download_msgs = []
+
+        def fake_ingest(path, ffmpeg="ffmpeg", quality="worst",
+                        download_progress_callback=None, status_callback=None):
+            # Simulate download progress callback
+            if download_progress_callback:
+                download_progress_callback(0.5)
+            project = tmp_path / "project"
+            project.mkdir(exist_ok=True)
+            return project
+
+        project = tmp_path / "project"
+        project.mkdir(exist_ok=True)
+
+        with mock.patch("vodtool.cli.ingest_video", side_effect=fake_ingest), \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            mt.return_value = project / "transcript_raw.json"
+            beats_file = project / "beats.json"
+            beats_file.write_text('{"beats":[]}')
+            md.return_value = beats_file
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        download_events = [
+            obj for obj in lines if obj.get("download_pct") is not None
+        ]
+        for evt in download_events:
+            assert "Downloading video" in evt["msg"]
+            assert "audio" not in evt["msg"].lower()
+
+    def test_error_on_beat_detection_failure(self, tmp_path):
+        """When beat detection fails, error event is emitted."""
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            project = tmp_path / "project"
+            project.mkdir()
+            mi.return_value = project
+            mt.return_value = project / "transcript_raw.json"
+            md.return_value = None  # Beat detection fails
+
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        assert result.exit_code == 1
+        lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        error_lines = [obj for obj in lines if "error" in obj]
+        assert len(error_lines) == 1
+        assert error_lines[0]["step"] == 3
+
+
+class TestProgressContract:
+    """Verify the JSON progress contract between Python CLI and Tauri frontend."""
+
+    def _run_beats_pipeline(self, tmp_path):
+        """Run a mocked beats pipeline and return all JSON lines."""
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            project = tmp_path / "project"
+            project.mkdir()
+            beats_file = project / "beats.json"
+            beats_file.write_text('{"beats":[{"topic":"T","beats":[{"type":"hook","start_s":0,"end_s":60}]}]}')
+            mi.return_value = project
+            mt.return_value = project / "transcript_raw.json"
+            md.return_value = beats_file
+
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        assert result.exit_code == 0
+        return [json.loads(l) for l in result.output.splitlines() if l.strip()]
+
+    def test_all_lines_are_valid_json(self, tmp_path):
+        """Every line emitted with --json-progress is parseable JSON."""
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            project = tmp_path / "project"
+            project.mkdir()
+            beats_file = project / "beats.json"
+            beats_file.write_text('{"beats":[]}')
+            mi.return_value = project
+            mt.return_value = project / "transcript_raw.json"
+            md.return_value = beats_file
+
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        for line in result.output.splitlines():
+            if line.strip():
+                json.loads(line)  # Should not raise
+
+    def test_step_field_range(self, tmp_path):
+        """step is always 1 <= step <= total."""
+        lines = self._run_beats_pipeline(tmp_path)
+        for obj in lines:
+            if "step" in obj:
+                assert 1 <= obj["step"] <= obj["total"]
+
+    def test_pct_range(self, tmp_path):
+        """pct is always 0.0 <= pct <= 1.0."""
+        lines = self._run_beats_pipeline(tmp_path)
+        for obj in lines:
+            if "pct" in obj:
+                assert 0.0 <= obj["pct"] <= 1.0
+
+    def test_download_pct_range(self, tmp_path):
+        """download_pct, when present, is 0 <= download_pct <= 100."""
+        project = tmp_path / "project"
+        project.mkdir()
+
+        def fake_ingest(path, ffmpeg="ffmpeg", quality="worst",
+                        download_progress_callback=None, status_callback=None):
+            if download_progress_callback:
+                for pct in [0.0, 0.25, 0.5, 0.75, 1.0]:
+                    download_progress_callback(pct)
+            return project
+
+        beats_file = project / "beats.json"
+        beats_file.write_text('{"beats":[]}')
+
+        with mock.patch("vodtool.cli.ingest_video", side_effect=fake_ingest), \
+             mock.patch("vodtool.cli.transcribe_audio") as mt, \
+             mock.patch("vodtool.cli.detect_beats") as md:
+            mt.return_value = project / "transcript_raw.json"
+            md.return_value = beats_file
+
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        for obj in lines:
+            if "download_pct" in obj and obj["download_pct"] is not None:
+                assert 0 <= obj["download_pct"] <= 100
+
+    def test_terminal_event_always_emitted(self, tmp_path):
+        """Pipeline always emits exactly one terminal event: done OR error."""
+        lines = self._run_beats_pipeline(tmp_path)
+        done_count = sum(1 for obj in lines if obj.get("done") is True)
+        error_count = sum(1 for obj in lines if "error" in obj and "step" in obj)
+        assert done_count + error_count == 1
+        assert done_count == 1  # success case
+
+    def test_done_event_has_required_fields(self, tmp_path):
+        """done event has: done=true, project_dir, topic_count, beat_count."""
+        lines = self._run_beats_pipeline(tmp_path)
+        done = next(obj for obj in lines if obj.get("done") is True)
+        assert done["done"] is True
+        assert isinstance(done["project_dir"], str)
+        assert isinstance(done["topic_count"], int)
+        assert isinstance(done["beat_count"], int)
+
+    def test_error_event_has_required_fields(self, tmp_path):
+        """error event has: error (string), step (int)."""
+        with mock.patch("vodtool.cli.ingest_video") as mi, \
+             mock.patch("vodtool.cli.transcribe_audio") as mt:
+            mi.return_value = tmp_path
+            mt.return_value = None  # step 2 fails
+
+            result = runner.invoke(
+                app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
+            )
+
+        assert result.exit_code == 1
+        lines = [json.loads(l) for l in result.output.splitlines() if l.strip()]
+        error = next(obj for obj in lines if "error" in obj)
+        assert isinstance(error["error"], str)
+        assert isinstance(error["step"], int)
+        assert len(error["error"]) > 0
