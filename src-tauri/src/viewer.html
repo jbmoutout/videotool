@@ -17,9 +17,18 @@
   #video-pending { display: none; font-size: 11px; color: #555; padding: 0.5rem 0; margin-bottom: 0.5rem; }
   #video-pending.visible { display: block; }
 
-  #timeline { position: relative; width: 100%; overflow-x: auto; margin-bottom: 0.5rem; border: 1px solid #1e1e1e; background: #111; }
+  .timeline-toolbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0; }
+  .timeline-toolbar button { font-family: inherit; font-size: 14px; width: 22px; height: 22px; line-height: 20px; text-align: center; color: #666; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 3px; cursor: pointer; padding: 0; }
+  .timeline-toolbar button:hover { color: #c9c9c9; border-color: #555; }
+  .timeline-toolbar #zoom-label { font-size: 11px; color: #555; min-width: 2.2em; text-align: center; }
+  .timeline-toolbar .zoom-hint { font-size: 10px; color: #333; margin-left: 0.4rem; }
+
+  .timeline-wrap { display: flex; margin-bottom: 0.5rem; border: 1px solid #1e1e1e; background: #111; }
+  #timeline-labels { width: 240px; flex-shrink: 0; border-right: 1px solid #1a1a1a; }
+  .topic-label { height: 28px; display: flex; align-items: center; padding: 0 6px; font-size: 10px; color: #666; border-bottom: 1px solid #1a1a1a; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  #timeline { flex: 1; overflow-x: auto; }
+  #timeline-inner { position: relative; min-width: 100%; }
   .topic-row { position: relative; height: 28px; border-bottom: 1px solid #1a1a1a; }
-  .topic-label-col { position: absolute; left: 0; top: 0; width: 140px; height: 100%; display: flex; align-items: center; padding: 0 6px; font-size: 10px; color: #666; z-index: 2; background: #111; border-right: 1px solid #1a1a1a; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
   .beat { position: absolute; top: 3px; height: 22px; border-radius: 2px; cursor: pointer; opacity: 0.85; transition: opacity 0.1s; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; line-height: 22px; padding: 0 4px; color: rgba(0,0,0,0.7); min-width: 2px; }
   .beat:hover { opacity: 1; z-index: 10; }
 
@@ -54,8 +63,19 @@
   <div class="legend-item"><div class="legend-swatch" style="background:#40a060"></div>resolution</div>
 </div>
 
-<div id="timeline">
-  <div id="playhead"></div>
+<div class="timeline-toolbar">
+  <button id="zoom-out-btn">−</button>
+  <span id="zoom-label">1×</span>
+  <button id="zoom-in-btn">+</button>
+  <span class="zoom-hint">ctrl+scroll to zoom</span>
+</div>
+<div class="timeline-wrap">
+  <div id="timeline-labels"></div>
+  <div id="timeline">
+    <div id="timeline-inner">
+      <div id="playhead"></div>
+    </div>
+  </div>
 </div>
 
 <div id="hover-info">&nbsp;</div>
@@ -63,6 +83,8 @@
 <script>
 const player = document.getElementById("player");
 const timeline = document.getElementById("timeline");
+const timelineInner = document.getElementById("timeline-inner");
+const timelineLabels = document.getElementById("timeline-labels");
 const playhead = document.getElementById("playhead");
 const hoverInfo = document.getElementById("hover-info");
 const status = document.getElementById("status");
@@ -71,7 +93,7 @@ const videoPending = document.getElementById("video-pending");
 let duration = 0;
 let beats = [];
 let videoReady = false;
-const LABEL_W = 140;
+let zoomLevel = 1;
 
 const params = new URLSearchParams(window.location.search);
 const beatsOnlyMode = params.get("mode") === "beats-only";
@@ -145,29 +167,38 @@ fetch("/beats.json")
   });
 
 // ── Rendering ──────────────────────────────────────────────────────
+// Base width = the scroll container's viewport (never changes with zoom)
+function getBaseW() { return timeline.clientWidth; }
+
+function getContentW() {
+  return getBaseW() * zoomLevel;
+}
+
 function render() {
-  timeline.querySelectorAll(".topic-row").forEach(el => el.remove());
+  timelineInner.querySelectorAll(".topic-row").forEach(el => el.remove());
+  timelineLabels.innerHTML = "";
 
   if (!duration || !beats.length) return;
 
-  const timelineW = timeline.clientWidth;
+  const contentW = getContentW();
+  timelineInner.style.width = contentW + "px";
 
   for (const topic of beats) {
-    const row = document.createElement("div");
-    row.className = "topic-row";
-
     const label = document.createElement("div");
-    label.className = "topic-label-col";
+    label.className = "topic-label";
     label.textContent = topic.topic_label;
     label.title = topic.topic_label;
-    row.appendChild(label);
+    timelineLabels.appendChild(label);
+
+    const row = document.createElement("div");
+    row.className = "topic-row";
 
     for (const b of topic.beats) {
       const el = document.createElement("div");
       el.className = "beat";
       el.dataset.type = b.type;
-      const left = LABEL_W + ((b.start_s / duration) * (timelineW - LABEL_W));
-      const width = Math.max(2, ((b.end_s - b.start_s) / duration) * (timelineW - LABEL_W));
+      const left = (b.start_s / duration) * contentW;
+      const width = Math.max(2, ((b.end_s - b.start_s) / duration) * contentW);
       el.style.left = left + "px";
       el.style.width = width + "px";
       el.title = `[${b.type}] ${fmtTime(b.start_s)}–${fmtTime(b.end_s)} (${b.confidence})\n${b.label}`;
@@ -188,25 +219,46 @@ function render() {
       row.appendChild(el);
     }
 
-    timeline.appendChild(row);
+    timelineInner.appendChild(row);
   }
 }
+
+// ── Zoom controls ──────────────────────────────────────────────────
+const zoomLabel = document.getElementById("zoom-label");
+function setZoom(level) {
+  const clamped = Math.max(1, Math.min(20, level));
+  if (clamped === zoomLevel) return;
+  zoomLevel = clamped;
+  zoomLabel.textContent = zoomLevel.toFixed(1).replace(/\.0$/, "") + "×";
+  if (beats.length) render();
+  syncPlayhead();
+}
+document.getElementById("zoom-in-btn").addEventListener("click", () => setZoom(zoomLevel * 1.5));
+document.getElementById("zoom-out-btn").addEventListener("click", () => setZoom(zoomLevel / 1.5));
+timeline.addEventListener("wheel", (e) => {
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    const scrollBefore = timeline.scrollLeft;
+    const mouseX = e.clientX - timeline.getBoundingClientRect().left + scrollBefore;
+    const oldZoom = zoomLevel;
+    setZoom(zoomLevel * (e.deltaY < 0 ? 1.2 : 1 / 1.2));
+    // keep the point under cursor stable
+    const ratio = zoomLevel / oldZoom;
+    timeline.scrollLeft = mouseX * ratio - (e.clientX - timeline.getBoundingClientRect().left);
+  }
+}, { passive: false });
 
 // ── Playhead sync (only runs while playing to save battery) ────────
 let rafId = null;
 function updatePlayhead() {
   if (duration > 0) {
-    const timelineW = timeline.clientWidth;
-    const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
-    playhead.style.left = x + "px";
+    playhead.style.left = ((player.currentTime / duration) * getContentW()) + "px";
   }
   rafId = requestAnimationFrame(updatePlayhead);
 }
 function syncPlayhead() {
   if (duration > 0) {
-    const timelineW = timeline.clientWidth;
-    const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
-    playhead.style.left = x + "px";
+    playhead.style.left = ((player.currentTime / duration) * getContentW()) + "px";
   }
 }
 player.addEventListener("play", () => { if (!rafId) updatePlayhead(); });
@@ -217,9 +269,8 @@ player.addEventListener("seeked", syncPlayhead);
 timeline.addEventListener("click", (e) => {
   if (e.target.classList.contains("beat")) return;
   const rect = timeline.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  if (x < LABEL_W) return;
-  const pct = (x - LABEL_W) / (rect.width - LABEL_W);
+  const x = e.clientX - rect.left + timeline.scrollLeft;
+  const pct = x / getContentW();
   player.currentTime = pct * duration;
 });
 

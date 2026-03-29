@@ -29,13 +29,6 @@
     step: number;
   }
 
-  interface BeatsReadyMsg {
-    beats_ready: boolean;
-    project_dir: string;
-    topic_count: number;
-    beat_count: number;
-  }
-
   // ── state ─────────────────────────────────────────────────────────────────────
 
   let screen = $state<Screen>("import");
@@ -45,7 +38,41 @@
   let videoFileName = $state<string>("");
   let processLog = $state<string[]>([]);
   let urlInput = $state("");
+  let pipelineRunning = $state(false);
   const quality = "worst";
+
+  interface ProjectInfo {
+    project_id: string;
+    source_filename: string;
+    title: string | null;
+    channel: string | null;
+    created_at: string;
+    has_beats: boolean;
+    project_dir: string;
+  }
+
+  let projects = $state<ProjectInfo[]>([]);
+
+  async function loadProjects() {
+    try {
+      const all = await invoke<ProjectInfo[]>("list_projects");
+      projects = all.filter((p) => p.has_beats);
+    } catch {
+      projects = [];
+    }
+  }
+
+  loadProjects();
+
+  async function openProject(projectDir: string) {
+    try {
+      const port = await invoke<number>("start_viewer_server", { projectDir });
+      const origin = encodeURIComponent(window.location.origin);
+      window.location.href = `http://127.0.0.1:${port}/?origin=${origin}`;
+    } catch (err) {
+      errorMsg = String(err);
+    }
+  }
 
   // ── spinner ───────────────────────────────────────────────────────────────────
 
@@ -71,7 +98,8 @@
     if (screen === "processing") {
       const iv = setInterval(() => {
         if (displayPct < targetPct) {
-          displayPct = Math.min(displayPct + 2, targetPct);
+          const increment = targetPct >= 90 ? 5 : 2;
+          displayPct = Math.min(displayPct + increment, targetPct);
         } else if (displayPct < 99) {
           // Slow crawl between real events (steps 2 & 3 have no sub-events)
           const step = progress?.step ?? 0;
@@ -138,9 +166,12 @@
 
         // Download sub-events: real-time download %
         if (e.payload.download_pct != null) {
-          const total = e.payload.total;
-          targetPct = Math.round((e.payload.download_pct / 100) * (1 / total) * 100);
-          currentWaitMsg = `downloading: ${e.payload.download_pct}%`;
+          // download_pct 0-100 maps to 0% → (1/total)*100% of the overall bar
+          const stepCeil = Math.round((1 / e.payload.total) * 100);
+          targetPct = Math.max(targetPct, Math.round((e.payload.download_pct / 100) * stepCeil));
+          currentWaitMsg = e.payload.download_pct >= 100
+            ? e.payload.msg
+            : `downloading video: ${e.payload.download_pct}%`;
           return;
         }
 
@@ -161,24 +192,8 @@
           currentWaitMsg = e.payload.msg;
         }
       }),
-      listen<BeatsReadyMsg>("pipeline-beats-ready", async (e) => {
-        // Beats are ready but video is still downloading — open viewer in beats-only mode
-        targetPct = 90;
-        displayPct = 90;
-        try {
-          const port = await invoke<number>("start_viewer_server", {
-            projectDir: e.payload.project_dir,
-          });
-          const origin = encodeURIComponent(window.location.origin);
-          window.location.href = `http://127.0.0.1:${port}/?origin=${origin}&mode=beats-only`;
-        } catch (err) {
-          errorMsg = String(err);
-          screen = "import";
-        }
-      }),
       listen<DoneMsg>("pipeline-done", async (e) => {
         targetPct = 100;
-        displayPct = 100;
         try {
           const port = await invoke<number>("start_viewer_server", {
             projectDir: e.payload.project_dir,
@@ -193,10 +208,21 @@
       listen<ErrorMsg>("pipeline-error-msg", (e) => {
         errorMsg = e.payload.error;
         screen = "import";
+        pipelineRunning = false;
       }),
       listen<string>("pipeline-error", (e) => {
         errorMsg = typeof e.payload === "string" ? e.payload : "Unknown error";
         screen = "import";
+        pipelineRunning = false;
+      }),
+      listen("pipeline-exit", () => {
+        // Safety net: if subprocess ended but no done/error event reached us,
+        // unstick the processing screen.
+        if (screen === "processing") {
+          errorMsg = errorMsg ?? "Pipeline ended unexpectedly";
+          screen = "import";
+        }
+        pipelineRunning = false;
       }),
     ]).then((fns) => {
       unlisteners = fns;
@@ -212,6 +238,8 @@
   // ── handlers ──────────────────────────────────────────────────────────────────
 
   async function startPipeline(videoPath: string) {
+    if (pipelineRunning) return;
+    pipelineRunning = true;
     errorMsg = null;
     progress = null;
     processLog = [];
@@ -226,12 +254,17 @@
     } catch (err) {
       errorMsg = String(err);
       screen = "import";
+      pipelineRunning = false;
     }
   }
 
   function handleUrlSubmit() {
     const url = urlInput.trim();
     if (!url) return;
+    if (!url.startsWith("/") && !url.startsWith("~") && !/^[a-zA-Z]:/.test(url) && !url.includes("twitch.tv")) {
+      errorMsg = "Enter a Twitch VOD URL or a local file path";
+      return;
+    }
     videoFileName = url;
     startPipeline(url);
   }
@@ -242,7 +275,7 @@
     } else if (e.payload.type === "drop") {
       dragOver = false;
       const path = e.payload.paths?.[0];
-      if (path) startPipeline(path);
+      if (path && !pipelineRunning) startPipeline(path);
     } else {
       dragOver = false;
     }
@@ -261,6 +294,7 @@
     screen = "import";
     progress = null;
     processLog = [];
+    pipelineRunning = false;
   }
 </script>
 
@@ -287,6 +321,20 @@
       </div>
       <p class="hint dim">or drop a video file here · <button class="browse-btn" onclick={browseFile}>browse</button></p>
     </div>
+
+    <hr class="divider" />
+
+    <p class="flow-line">vod url or file <span class="flow-sep">→</span> extract audio <span class="flow-sep">→</span> transcribe <span class="flow-sep">→</span> detect beats <span class="flow-sep">→</span> topic map <span class="flow-check">✓</span></p>
+
+    {#if projects.length > 0}
+      <hr class="divider" />
+      <p class="dim">recent projects</p>
+      {#each projects as proj}
+        <button class="project-link" onclick={() => openProject(proj.project_dir)}>
+          {#if proj.channel}<span class="project-channel">{proj.channel}</span> {/if}{proj.title ?? proj.source_filename} <span class="dim">— {proj.created_at.slice(0, 10)}</span>
+        </button>
+      {/each}
+    {/if}
   </main>
 
 <!-- ── Processing ─────────────────────────────────────────────────────────────── -->
@@ -382,6 +430,28 @@
     padding: 0;
   }
   .browse-btn:hover { color: #c9c9c9; border-color: #888; }
+
+  /* ── flow line ──────────────────────────────────────────────────── */
+  .divider { border: none; border-top: 1px solid #222; margin: 24px 0 16px 0; }
+  .flow-line { color: #555; }
+  .flow-sep { color: #444; }
+  .flow-check { color: #4ADE80; }
+
+  /* ── project links ─────────────────────────────────────────────── */
+  .project-link {
+    font-family: inherit;
+    font-size: 13px;
+    color: #888;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+    display: block;
+    line-height: 1.6;
+  }
+  .project-link:hover { color: #c9c9c9; }
+  .project-channel { color: #555; margin-right: 0.5rem; }
 
   /* ── processing ──────────────────────────────────────────────────── */
   .log { margin-top: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.1rem; }

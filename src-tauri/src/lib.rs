@@ -61,26 +61,6 @@ pub struct DoneMsg {
     pub beat_count: u32,
 }
 
-/// Beats-ready line: beats are done, video may still be downloading.
-/// {"beats_ready":true,"project_dir":"/...","topic_count":6,"beat_count":18}
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct BeatsReadyMsg {
-    pub beats_ready: bool,
-    pub project_dir: String,
-    #[serde(default)]
-    pub topic_count: u32,
-    #[serde(default)]
-    pub beat_count: u32,
-}
-
-/// Video-ready line: video download + remux complete.
-/// {"video_ready":true,"project_dir":"/..."}
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct VideoReadyMsg {
-    pub video_ready: bool,
-    pub project_dir: String,
-}
-
 /// Topic entry from topic_map_llm.json (subset of fields needed for UI).
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TopicEntry {
@@ -114,6 +94,18 @@ pub struct BeatTopic {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 struct BeatsFile {
     beats: Vec<BeatTopic>,
+}
+
+/// Summary of a project in the projects/ directory.
+#[derive(Debug, Serialize, Clone)]
+pub struct ProjectInfo {
+    pub project_id: String,
+    pub source_filename: String,
+    pub title: Option<String>,
+    pub channel: Option<String>,
+    pub created_at: String,
+    pub has_beats: bool,
+    pub project_dir: String,
 }
 
 /// Response from load_beats: beats data + video file path.
@@ -166,6 +158,8 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
     tokio::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
+        let mut got_terminal = false;
+        let mut last_non_json = String::new();
 
         loop {
             match lines.next_line().await {
@@ -174,59 +168,84 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
                     if line.is_empty() {
                         continue;
                     }
-                    parse_and_emit(&app_clone, &line);
+                    got_terminal |= parse_and_emit(&app_clone, &line, &mut last_non_json);
                 }
-                Ok(None) => {
-                    // Subprocess closed stdout — reap and notify frontend.
-                    let _ = app_clone.emit("pipeline-exit", ());
-                    break;
-                }
+                Ok(None) => break,
                 Err(e) => {
                     let _ = app_clone.emit("pipeline-error", format!("stdout read error: {e}"));
+                    got_terminal = true;
                     break;
                 }
             }
         }
 
-        // Reap child process — take out of mutex BEFORE awaiting to drop the lock.
+        // Reap child process and check exit status.
         let maybe_child = child_handle.lock().unwrap().take();
         if let Some(mut child) = maybe_child {
-            let _ = child.wait().await;
+            match child.wait().await {
+                Ok(status) if !got_terminal => {
+                    // Subprocess ended without emitting done or error — something crashed.
+                    let detail = if !last_non_json.is_empty() {
+                        format!(": {}", last_non_json)
+                    } else {
+                        String::new()
+                    };
+                    let msg = if status.success() {
+                        format!("Pipeline ended without producing results{detail}")
+                    } else {
+                        let code = status.code().map(|c| c.to_string()).unwrap_or("signal".into());
+                        format!("Pipeline process failed (exit code {code}){detail}")
+                    };
+                    let _ = app_clone.emit("pipeline-error", msg);
+                }
+                Err(e) if !got_terminal => {
+                    let _ = app_clone.emit("pipeline-error", format!("Failed to reap pipeline process: {e}"));
+                }
+                _ => {}
+            }
+        } else if !got_terminal {
+            // Child was taken (cancelled) — no error needed unless no terminal event.
+            // cancel_pipeline already handles UI reset, so this is a no-op.
         }
+
+        let _ = app_clone.emit("pipeline-exit", ());
     });
 
     Ok(())
 }
 
 /// Parse a single stdout line and emit the right Tauri event.
-fn parse_and_emit(app: &AppHandle, line: &str) {
+/// Returns `true` if a terminal event (done, error, beats_ready) was emitted.
+fn parse_and_emit(app: &AppHandle, line: &str, last_non_json: &mut String) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-        // Non-JSON (Python warning/log) — ignore silently.
-        return;
+        // Non-JSON (Python warning/traceback) — log for debugging and keep
+        // the last line so we can include it in crash error messages.
+        eprintln!("[vodtool-app] subprocess: {line}");
+        *last_non_json = line.to_string();
+        return false;
     };
 
     if value.get("done").and_then(|v| v.as_bool()) == Some(true) {
         if let Ok(msg) = serde_json::from_value::<DoneMsg>(value) {
             let _ = app.emit("pipeline-done", msg);
-        }
-    } else if value.get("beats_ready").and_then(|v| v.as_bool()) == Some(true) {
-        if let Ok(msg) = serde_json::from_value::<BeatsReadyMsg>(value) {
-            let _ = app.emit("pipeline-beats-ready", msg);
-        }
-    } else if value.get("video_ready").and_then(|v| v.as_bool()) == Some(true) {
-        if let Ok(msg) = serde_json::from_value::<VideoReadyMsg>(value) {
-            let _ = app.emit("pipeline-video-ready", msg);
+            return true;
         }
     } else if value.get("error").is_some() {
         if let Ok(msg) = serde_json::from_value::<ErrorMsg>(value) {
             let _ = app.emit("pipeline-error-msg", msg);
+            return true;
+        } else {
+            eprintln!("[vodtool-app] failed to deserialize error line: {line}");
         }
     } else if value.get("step").is_some() {
         if let Ok(msg) = serde_json::from_value::<ProgressMsg>(value) {
             let _ = app.emit("pipeline-progress", msg);
+        } else {
+            eprintln!("[vodtool-app] failed to deserialize progress line: {line}");
         }
     }
-    // Unknown JSON shape — ignore silently.
+
+    false
 }
 
 /// Load topics from project_dir/topic_map_llm.json (or fallback).
@@ -527,6 +546,78 @@ fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
     Some((start, end.min(file_size - 1)))
 }
 
+/// List all projects in the projects/ directory.
+#[tauri::command]
+fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+    let home = std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default();
+    let projects_dir = home.join(".vodtool").join("projects");
+
+    if !projects_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut results = Vec::new();
+
+    let entries = std::fs::read_dir(&projects_dir)
+        .map_err(|e| format!("Failed to read projects dir: {e}"))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let meta_path = path.join("meta.json");
+        if !meta_path.exists() {
+            continue;
+        }
+
+        let Ok(data) = std::fs::read_to_string(&meta_path) else {
+            continue;
+        };
+        let Ok(meta) = serde_json::from_str::<serde_json::Value>(&data) else {
+            continue;
+        };
+
+        let project_id = meta.get("project_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let source_filename = meta.get("source_filename")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let title = meta.get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let channel = meta.get("channel")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let created_at = meta.get("created_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let has_beats = path.join("beats.json").exists();
+
+        results.push(ProjectInfo {
+            project_id,
+            source_filename,
+            title,
+            channel,
+            created_at,
+            has_beats,
+            project_dir: path.to_string_lossy().to_string(),
+        });
+    }
+
+    // Sort by created_at descending (newest first)
+    results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    Ok(results)
+}
+
 /// Cancel the running pipeline (kill subprocess).
 #[tauri::command]
 fn cancel_pipeline(app: AppHandle) {
@@ -634,6 +725,7 @@ pub fn run() {
             load_beats,
             start_viewer_server,
             cancel_pipeline,
+            list_projects,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
