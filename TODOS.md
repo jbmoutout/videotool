@@ -341,6 +341,34 @@ app.on_window_event(|event| {
 
 ---
 
+## 11. Deploy Landing Page on GitHub Pages (P0)
+
+**What:** Enable GitHub Pages on the vodtool repo, serving `landing/index.html` as the public site. Update download links to point to actual GitHub Release assets once TODO #7 produces them.
+
+**Why:** The landing page exists (`landing/index.html`) but isn't deployed. Beta testers (a professional editor beta tester, a DIY streamer beta tester) need a URL to visit, not a git clone. GitHub Pages is free, zero-config for static HTML, and already where the repo lives.
+
+**Steps:**
+1. Enable GitHub Pages in repo Settings → Pages → Source: "Deploy from a branch", branch `main`, folder `/landing`
+2. Verify the page loads at `https://jbmoutout.github.io/vodtool/`
+3. Once TODO #7 produces release assets, update download `href="#"` placeholders in `landing/index.html` to point to actual GitHub Release URLs (e.g., `https://github.com/jbmoutout/vodtool/releases/download/v0.1.0/vodtool-0.1.0-aarch64.dmg`)
+4. Optional: configure custom domain later if needed
+
+**Pros:**
+- Zero cost, zero maintenance
+- HTTPS included
+- Deploys automatically on push to `main`
+- No build step — it's one HTML file
+
+**Cons:**
+- URL is `jbmoutout.github.io/vodtool` (not a custom domain) — fine for beta
+- GitHub Pages has no analytics — add Simple Analytics or Plausible later if needed
+
+**Depends on:** `landing/index.html` exists (done), TODO #7 for actual download links
+
+**Effort:** human ~10 min / CC+gstack ~5 min
+
+---
+
 ## NOT in scope (explicitly deferred)
 
 - **Segment editing** — No manual adjustment of topic boundaries. Users re-run with different settings if topics are wrong.
