@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import uuid
@@ -485,7 +486,7 @@ def _ingest_local(
     try:
         console.print("[cyan]Linking source video...[/cyan]")
         try:
-            source_path.hardlink_to(input_video_path.resolve())
+            os.link(str(input_video_path.resolve()), str(source_path))
         except (OSError, NotImplementedError):
             source_path.symlink_to(input_video_path.resolve())
         logger.info(f"Source video at: {source_path}")
