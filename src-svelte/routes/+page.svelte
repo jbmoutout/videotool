@@ -331,7 +331,7 @@
       <p class="dim">recent projects</p>
       {#each projects as proj}
         <button class="project-link" onclick={() => openProject(proj.project_dir)}>
-          {#if proj.channel}<span class="project-channel">{proj.channel}</span> {/if}{proj.title ?? proj.source_filename} <span class="dim">— {proj.created_at.slice(0, 10)}</span>
+          - {#if proj.channel}<span class="project-channel">{proj.channel}</span> {/if}{proj.title ?? proj.source_filename} <span class="dim">— {proj.created_at.slice(0, 10)}</span>
         </button>
       {/each}
     {/if}
