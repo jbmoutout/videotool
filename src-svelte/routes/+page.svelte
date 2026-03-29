@@ -55,6 +55,7 @@
 
   async function loadProjects() {
     try {
+      await invoke("seed_demo_project");
       const all = await invoke<ProjectInfo[]>("list_projects");
       projects = all.filter((p) => p.has_beats);
     } catch {
@@ -131,8 +132,8 @@
       "Detecting narrative beats…",
       "Analyzing structure…",
       "Identifying key moments…",
-      "Segmenting story arcs…",
-      "Mapping hook to resolution…",
+      "Tiling the full timeline…",
+      "Classifying highlights and filler…",
     ],
   };
 

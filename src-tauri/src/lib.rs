@@ -546,6 +546,33 @@ fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
     Some((start, end.min(file_size - 1)))
 }
 
+/// Seed a demo project into ~/.vodtool/projects/ if it doesn't already exist.
+/// Returns true if the demo was written, false if it already existed.
+#[tauri::command]
+fn seed_demo_project() -> Result<bool, String> {
+    let home = std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default();
+    let demo_dir = home.join(".vodtool").join("projects").join("demo_sample");
+
+    if demo_dir.join("beats.json").exists() {
+        return Ok(false);
+    }
+
+    std::fs::create_dir_all(&demo_dir)
+        .map_err(|e| format!("Failed to create demo dir: {e}"))?;
+
+    let meta = include_str!("demo/meta.json");
+    let beats = include_str!("demo/beats.json");
+
+    std::fs::write(demo_dir.join("meta.json"), meta)
+        .map_err(|e| format!("Failed to write demo meta: {e}"))?;
+    std::fs::write(demo_dir.join("beats.json"), beats)
+        .map_err(|e| format!("Failed to write demo beats: {e}"))?;
+
+    Ok(true)
+}
+
 /// List all projects in the projects/ directory.
 #[tauri::command]
 fn list_projects() -> Result<Vec<ProjectInfo>, String> {
@@ -726,6 +753,7 @@ pub fn run() {
             start_viewer_server,
             cancel_pipeline,
             list_projects,
+            seed_demo_project,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

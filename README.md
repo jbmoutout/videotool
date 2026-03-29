@@ -10,7 +10,7 @@
 
 # VodTool
 
-Guided VOD editing — AI maps narrative beats (hook, build, peak, resolution) on your stream's timeline so you see the terrain before you cut.
+Guided VOD editing — AI maps every second of your stream into topics and beats (highlight, core, context, chat, transition, break) so you see the terrain before you cut.
 
 ## How It Works
 
@@ -22,7 +22,7 @@ ingest → transcribe → detect narrative beats
 
 1. **Ingest** — downloads the video (Twitch URL or local file), extracts audio
 2. **Transcribe** — sends audio to Groq Whisper (fast, free tier: ~2h/day)
-3. **Detect beats** — sends the full transcript to Claude in a single call, gets back topics + narrative beats (hook/build/peak/resolution) with timestamps and confidence scores
+3. **Detect beats** — sends the full transcript to Claude in a single call, gets back topics + beats (highlight/core/context/chat/transition/break) with timestamps and confidence scores, tiling the entire stream
 
 The output is a `beats.json` file that maps the narrative structure of your stream.
 
@@ -93,14 +93,14 @@ The `beats.json` schema:
       "topic_label": "Rogue noir dans HP",
       "beats": [
         {
-          "type": "hook",
+          "type": "highlight",
           "start_s": 912,
           "end_s": 945,
           "confidence": 0.91,
           "label": "Hot take: casting Rogue noir"
         },
         {
-          "type": "peak",
+          "type": "core",
           "start_s": 945,
           "end_s": 1650,
           "confidence": 0.85,
