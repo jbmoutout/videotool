@@ -12,7 +12,7 @@ RATE_LIMIT_PER_DAY = "10"
 # Then paste the id below.
 [[kv_namespaces]]
 binding = "RATE_LIMITS"
-id = ""  # TODO: paste KV namespace ID after running: wrangler kv namespace create RATE_LIMITS
+id = "a227468143354a9b94a7fc607f8b1a7c"
 
 # Analytics Engine binding (optional — enable in Cloudflare dashboard first)
 # [[analytics_engine_datasets]]
