@@ -4,7 +4,6 @@ import json
 import logging
 import shutil
 import subprocess
-import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,14 +12,14 @@ from typing import Optional
 from rich.console import Console
 
 from vodtool.utils.twitch import (
-    BackgroundDownload,
     check_streamlink,
     download_chat,
-    download_vod,
-    download_vod_background,
     download_vod_with_progress,
+    fetch_vod_metadata,
+    get_available_streams,
     is_twitch_url,
     parse_twitch_video_id,
+    resolve_quality,
 )
 from vodtool.utils.validation import (
     check_disk_space,
@@ -196,26 +195,25 @@ def ingest_video(
     quality: str = "worst",
     download_progress_callback=None,
     status_callback=None,
-) -> Optional[tuple[Path, Optional[BackgroundDownload]]]:
+) -> Optional[Path]:
     """
     Ingest a video file or Twitch VOD URL and create a new project.
 
-    For Twitch URLs: downloads audio_only stream first (fast), starts 480p
-    video download in background. Returns immediately after audio is ready.
+    For Twitch URLs: downloads a single stream (default: worst/160p),
+    remuxes to MP4, and extracts audio for transcription.
 
-    For local files: links source and extracts audio.wav as before.
+    For local files: links source and extracts audio.wav.
 
     Args:
         input_video_path: Path to a local video file, or a Twitch VOD URL
         ffmpeg_path: Path to ffmpeg binary
-        quality: streamlink quality for Twitch video downloads (default: worst)
+        quality: streamlink quality for Twitch downloads (default: worst)
         download_progress_callback: Optional callable(pct: float) for download progress
         status_callback: Optional callable(msg: str) for status messages
 
     Returns:
-        (project_dir, background_download) tuple, or None if ingestion failed.
-        background_download is a BackgroundDownload handle for Twitch (None for local files).
-        The project's audio file is ready for transcription when this returns.
+        project_dir Path on success, or None if ingestion failed.
+        The project contains source.mp4 (video) and audio.wav (for transcription).
     """
     global _last_error
     _last_error = None
@@ -226,10 +224,7 @@ def ingest_video(
             download_progress_callback, status_callback,
         )
     else:
-        result = _ingest_local(input_video_path, ffmpeg_path, status_callback)
-        if result is None:
-            return None
-        return result, None
+        return _ingest_local(input_video_path, ffmpeg_path, status_callback)
 
 
 def _ingest_twitch(
@@ -238,8 +233,8 @@ def _ingest_twitch(
     video_quality: str,
     download_progress_callback,
     status_callback,
-) -> Optional[tuple[Path, Optional[BackgroundDownload]]]:
-    """Ingest a Twitch VOD: audio_only first, video in background."""
+) -> Optional[Path]:
+    """Ingest a Twitch VOD: download single stream, remux to MP4, extract audio."""
     global _last_error
 
     video_id = parse_twitch_video_id(twitch_url)
@@ -268,48 +263,114 @@ def _ingest_twitch(
         console.print(f"[red]Error: Cannot create project directory: {e}[/red]")
         return None
 
-    # --- Phase A: Download audio_only stream (blocking, fast) ---
+    # --- Resolve available quality ---
     console.print(f"[cyan]Twitch VOD detected: video {video_id}[/cyan]")
-    console.print("[cyan]Downloading audio stream...[/cyan]")
+    if status_callback:
+        status_callback("Checking available streams...")
 
-    audio_raw_path = project_dir / "audio_raw.ts"
+    # Run stream query in a thread so we can emit progress ticks
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(get_available_streams, twitch_url)
+        while not future.done():
+            import time as _time
+            _time.sleep(2)
+            if status_callback:
+                status_callback("Checking available streams...")
+        streams = future.result()
+
+    if streams:
+        resolved_quality = resolve_quality(video_quality, streams)
+        logger.info(f"Available streams: {streams}")
+    else:
+        resolved_quality = video_quality
+        logger.warning("Could not query streams, using default quality")
+
+    # --- Download single stream (blocking, with progress) ---
+    if status_callback:
+        status_callback("Downloading video stream...")
+    console.print(f"[cyan]Downloading stream (quality: {resolved_quality})...[/cyan]")
+
+    source_ts_path = project_dir / "source.ts"
     if download_progress_callback:
-        audio_ok = download_vod_with_progress(
-            twitch_url, audio_raw_path, quality="audio_only",
+        download_ok = download_vod_with_progress(
+            twitch_url, source_ts_path, quality=resolved_quality,
             progress_callback=download_progress_callback,
         )
     else:
-        audio_ok = download_vod(twitch_url, audio_raw_path, quality="audio_only")
+        from vodtool.utils.twitch import download_vod
+        download_ok = download_vod(twitch_url, source_ts_path, quality=resolved_quality)
 
-    if not audio_ok:
-        _last_error = "Twitch audio download failed"
-        console.print("[red]Error: Audio stream download failed.[/red]")
+    if not download_ok:
+        _last_error = "Twitch VOD download failed"
+        console.print("[red]Error: VOD download failed.[/red]")
         shutil.rmtree(project_dir, ignore_errors=True)
         return None
 
-    logger.info(f"Audio stream downloaded: {audio_raw_path}")
+    size_mb = source_ts_path.stat().st_size / 1024 / 1024
+    logger.info(f"Stream downloaded: {source_ts_path} ({size_mb:.0f}MB)")
 
-    # --- Phase B: Start video download in background ---
-    console.print("[cyan]Starting video download in background...[/cyan]")
-    tmp_dir = tempfile.mkdtemp(prefix="vodtool_twitch_video_")
-    tmp_video = Path(tmp_dir) / "vod.ts"
+    # --- Remux TS → MP4 ---
+    if status_callback:
+        status_callback("Remuxing video...")
+    console.print("[cyan]Remuxing TS → MP4...[/cyan]")
 
-    video_download = download_vod_background(
-        twitch_url, tmp_video, quality=f"480p,480p60,{video_quality}",
+    source_mp4_path = project_dir / "source.mp4"
+    remux_result = subprocess.run(
+        [ffmpeg_path, "-i", str(source_ts_path),
+         "-c", "copy", "-y", str(source_mp4_path)],
+        capture_output=True, text=True, check=False,
     )
 
-    # Store tmp_dir path on the handle so CLI can clean up + remux later
-    video_download.tmp_dir = tmp_dir
-    video_download.project_dir = project_dir
-    video_download.ffmpeg_path = ffmpeg_path
+    if remux_result.returncode == 0 and source_mp4_path.exists():
+        source_ts_path.unlink()
+        source_path = source_mp4_path
+        logger.info(f"Remuxed to: {source_mp4_path}")
+    else:
+        logger.warning(f"Remux failed (exit {remux_result.returncode}), keeping source.ts")
+        source_path = source_ts_path
 
-    # --- Extract duration from audio stream ---
+    # --- Extract audio ---
+    if status_callback:
+        status_callback("Extracting audio...")
+    console.print("[cyan]Extracting audio (mono, 16kHz)...[/cyan]")
+
     ffprobe_path = get_ffprobe_path(ffmpeg_path)
-    duration = get_video_duration(audio_raw_path, ffprobe_path)
-    if duration:
-        logger.info(f"Audio duration: {duration:.2f} seconds")
+    duration = get_video_duration(source_path, ffprobe_path)
 
-    # --- Download chat replay (non-blocking, fast) ---
+    audio_path = project_dir / "audio.wav"
+    if not extract_audio(source_path, audio_path, ffmpeg_path):
+        _last_error = "Audio extraction failed"
+        console.print("[red]Error: Audio extraction failed[/red]")
+        shutil.rmtree(project_dir, ignore_errors=True)
+        return None
+
+    if not audio_path.exists() or audio_path.stat().st_size == 0:
+        _last_error = "Audio file is empty or missing after extraction"
+        console.print("[red]Error: Audio file is empty or missing[/red]")
+        shutil.rmtree(project_dir, ignore_errors=True)
+        return None
+
+    logger.info(f"Extracted audio to: {audio_path}")
+
+    # --- Fetch VOD metadata (title, language) ---
+    vod_title = None
+    vod_language = None
+    vod_channel = None
+    if video_id:
+        vod_meta = fetch_vod_metadata(video_id)
+        if vod_meta:
+            vod_title = vod_meta.get("title")
+            vod_language = vod_meta.get("language")
+            vod_channel = vod_meta.get("channel")
+            if vod_title:
+                console.print(f"[dim]Title: {vod_title}[/dim]")
+            if vod_channel:
+                console.print(f"[dim]Channel: {vod_channel}[/dim]")
+            if vod_language:
+                console.print(f"[dim]Language: {vod_language}[/dim]")
+
+    # --- Download chat replay ---
     if video_id:
         chat_path = project_dir / "chat.json"
         ok = download_chat(video_id, chat_path)
@@ -328,20 +389,26 @@ def _ingest_twitch(
         "source_filename": twitch_url,
         "source_path": twitch_url,
         "duration_seconds": duration,
-        "audio_path": "audio_raw.ts",
+        "audio_path": "audio.wav",
         "twitch_video_id": video_id,
         "twitch_url": twitch_url,
     }
+    if vod_title:
+        metadata["title"] = vod_title
+    if vod_language:
+        metadata["language"] = vod_language
+    if vod_channel:
+        metadata["channel"] = vod_channel
     meta_path = project_dir / "meta.json"
     with meta_path.open("w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
 
-    console.print("\n[green]✓ Audio ready — transcription can begin[/green]")
+    console.print("\n[green]✓ Project created successfully![/green]")
     console.print(f"[bold]Project path:[/bold] {project_dir.absolute()}")
     if duration:
         console.print(f"[dim]Duration: {duration:.1f}s ({duration/60:.1f} min)[/dim]")
 
-    return project_dir, video_download
+    return project_dir
 
 
 def _ingest_local(
