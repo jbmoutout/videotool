@@ -22,7 +22,7 @@ MAX_RETRIES = 2  # retry once on transient failures
 
 
 def get_anthropic_client():
-    """Get Anthropic client, raising clear error if API key missing."""
+    """Get Anthropic client, falling back to proxy if no local API key."""
     try:
         from anthropic import Anthropic
     except ImportError as e:
@@ -31,10 +31,22 @@ def get_anthropic_client():
         ) from e
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY not set. Add to .env file or set environment variable.")
+    proxy_url = os.getenv("VITE_API_PROXY_URL")
 
-    return Anthropic(api_key=api_key)
+    if api_key:
+        return Anthropic(api_key=api_key)
+
+    if proxy_url:
+        logger.info("Using proxy for Anthropic API")
+        return Anthropic(
+            api_key="proxy",
+            base_url=f"{proxy_url.rstrip('/')}/anthropic",
+        )
+
+    raise ValueError(
+        "ANTHROPIC_API_KEY not set and no proxy configured. "
+        "Set ANTHROPIC_API_KEY or VITE_API_PROXY_URL in .env"
+    )
 
 
 def get_ollama_client(model: str = "qwen2.5:3b"):
