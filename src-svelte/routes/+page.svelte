@@ -7,32 +7,26 @@
 
   // ── types ────────────────────────────────────────────────────────────────────
 
-  type Screen = "import" | "processing" | "results";
+  type Screen = "import" | "processing";
 
   interface ProgressMsg {
     step: number;
     total: number;
     pct: number;
     msg: string;
+    download_pct?: number;
   }
 
   interface DoneMsg {
     done: boolean;
     project_dir: string;
     topic_count: number;
+    beat_count: number;
   }
 
   interface ErrorMsg {
     error: string;
     step: number;
-  }
-
-  interface Topic {
-    topic_id: string;
-    label: string;
-    summary: string;
-    duration_label: string;
-    chunk_count: number;
   }
 
   // ── state ─────────────────────────────────────────────────────────────────────
@@ -41,10 +35,44 @@
   let dragOver = $state(false);
   let progress = $state<ProgressMsg | null>(null);
   let errorMsg = $state<string | null>(null);
-  let topics = $state<Topic[]>([]);
-  let projectDir = $state<string>("");
   let videoFileName = $state<string>("");
   let processLog = $state<string[]>([]);
+  let urlInput = $state("");
+  let pipelineRunning = $state(false);
+  const quality = "worst";
+
+  interface ProjectInfo {
+    project_id: string;
+    source_filename: string;
+    title: string | null;
+    channel: string | null;
+    created_at: string;
+    has_beats: boolean;
+    project_dir: string;
+  }
+
+  let projects = $state<ProjectInfo[]>([]);
+
+  async function loadProjects() {
+    try {
+      const all = await invoke<ProjectInfo[]>("list_projects");
+      projects = all.filter((p) => p.has_beats);
+    } catch {
+      projects = [];
+    }
+  }
+
+  loadProjects();
+
+  async function openProject(projectDir: string) {
+    try {
+      const port = await invoke<number>("start_viewer_server", { projectDir });
+      const origin = encodeURIComponent(window.location.origin);
+      window.location.href = `http://127.0.0.1:${port}/?origin=${origin}`;
+    } catch (err) {
+      errorMsg = String(err);
+    }
+  }
 
   // ── spinner ───────────────────────────────────────────────────────────────────
 
@@ -60,9 +88,72 @@
     }
   });
 
-  // ── copy state ────────────────────────────────────────────────────────────────
+  // ── smooth progress bar ───────────────────────────────────────────────────────
 
-  let copiedId = $state<string | null>(null);
+  let targetPct = $state(0);
+  let displayPct = $state(0);
+  let lastStep = $state(0);
+
+  $effect(() => {
+    if (screen === "processing") {
+      const iv = setInterval(() => {
+        if (displayPct < targetPct) {
+          const increment = targetPct >= 90 ? 5 : 2;
+          displayPct = Math.min(displayPct + increment, targetPct);
+        } else if (displayPct < 99) {
+          // Slow crawl between real events (steps 2 & 3 have no sub-events)
+          const step = progress?.step ?? 0;
+          const total = progress?.total ?? 3;
+          const cap = Math.min(Math.round(((step + 1) / total) * 100) - 2, 99);
+          if (displayPct < cap) {
+            displayPct = Math.min(displayPct + 0.3, cap);
+          }
+        }
+      }, 300);
+      return () => clearInterval(iv);
+    } else {
+      displayPct = 0;
+      targetPct = 0;
+    }
+  });
+
+  // ── rotating wait messages ────────────────────────────────────────────────────
+
+  const WAIT_MSGS: Record<number, string[]> = {
+    2: [
+      "Transcribing audio…",
+      "Running speech-to-text…",
+      "Decoding speech…",
+      "Aligning transcript…",
+      "Processing audio stream…",
+    ],
+    3: [
+      "Detecting narrative beats…",
+      "Analyzing structure…",
+      "Identifying key moments…",
+      "Segmenting story arcs…",
+      "Mapping hook to resolution…",
+    ],
+  };
+
+  let waitMsgIdx = $state(0);
+  let currentWaitMsg = $state("");
+
+  $effect(() => {
+    if (screen === "processing") {
+      // Only rotate messages for steps 2 and 3 (step 1 gets real-time messages)
+      const iv = setInterval(() => {
+        const step = progress?.step ?? 1;
+        if (step >= 2 && WAIT_MSGS[step]) {
+          const msgs = WAIT_MSGS[step];
+          waitMsgIdx = (waitMsgIdx + 1) % msgs.length;
+          currentWaitMsg = msgs[waitMsgIdx];
+        }
+      }, 4000);
+      currentWaitMsg = "starting...";
+      return () => clearInterval(iv);
+    }
+  });
 
   // ── event listeners ───────────────────────────────────────────────────────────
 
@@ -71,31 +162,67 @@
   function registerListeners() {
     Promise.all([
       listen<ProgressMsg>("pipeline-progress", (e) => {
-        const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
-        if (processLog.at(-1) !== entry) {
-          processLog = [...processLog, entry];
-        }
         progress = e.payload;
+
+        // Download sub-events: real-time download %
+        if (e.payload.download_pct != null) {
+          // download_pct 0-100 maps to 0% → (1/total)*100% of the overall bar
+          const stepCeil = Math.round((1 / e.payload.total) * 100);
+          targetPct = Math.max(targetPct, Math.round((e.payload.download_pct / 100) * stepCeil));
+          currentWaitMsg = e.payload.download_pct >= 100
+            ? e.payload.msg
+            : `downloading video: ${e.payload.download_pct}%`;
+          return;
+        }
+
+        // Step changed — update log, progress bar, wait message
+        if (e.payload.step !== lastStep) {
+          lastStep = e.payload.step;
+          const entry = `[${e.payload.step}/${e.payload.total}] ${e.payload.msg}`;
+          if (processLog.at(-1) !== entry) {
+            processLog = [...processLog, entry];
+          }
+          targetPct = Math.round(e.payload.pct * 100);
+          waitMsgIdx = 0;
+          if (WAIT_MSGS[e.payload.step]) {
+            currentWaitMsg = WAIT_MSGS[e.payload.step][0];
+          }
+        } else {
+          // Same step, sub-status update (e.g. "extracting audio...")
+          currentWaitMsg = e.payload.msg;
+        }
       }),
       listen<DoneMsg>("pipeline-done", async (e) => {
-        projectDir = e.payload.project_dir;
+        targetPct = 100;
         try {
-          topics = await invoke<Topic[]>("load_topics", {
+          const port = await invoke<number>("start_viewer_server", {
             projectDir: e.payload.project_dir,
           });
+          const origin = encodeURIComponent(window.location.origin);
+          window.location.href = `http://127.0.0.1:${port}/?origin=${origin}`;
         } catch (err) {
-          topics = [];
           errorMsg = String(err);
+          screen = "import";
         }
-        screen = "results";
       }),
       listen<ErrorMsg>("pipeline-error-msg", (e) => {
         errorMsg = e.payload.error;
         screen = "import";
+        pipelineRunning = false;
       }),
       listen<string>("pipeline-error", (e) => {
         errorMsg = typeof e.payload === "string" ? e.payload : "Unknown error";
         screen = "import";
+        pipelineRunning = false;
+      }),
+      listen("pipeline-exit", () => {
+        // Safety net: if subprocess ended but no done/error event reached us,
+        // unstick the processing screen.
+        if (screen === "processing") {
+          errorMsg = errorMsg ?? "Pipeline ended unexpectedly";
+          screen = "import";
+        }
+        pipelineRunning = false;
       }),
     ]).then((fns) => {
       unlisteners = fns;
@@ -111,17 +238,35 @@
   // ── handlers ──────────────────────────────────────────────────────────────────
 
   async function startPipeline(videoPath: string) {
+    if (pipelineRunning) return;
+    pipelineRunning = true;
     errorMsg = null;
     progress = null;
     processLog = [];
+    targetPct = 0;
+    displayPct = 0;
+    lastStep = 0;
+    waitMsgIdx = 0;
     videoFileName = videoPath.split("/").pop() ?? videoPath;
     screen = "processing";
     try {
-      await invoke("start_pipeline", { videoPath });
+      await invoke("start_pipeline", { videoPath, quality });
     } catch (err) {
       errorMsg = String(err);
       screen = "import";
+      pipelineRunning = false;
     }
+  }
+
+  function handleUrlSubmit() {
+    const url = urlInput.trim();
+    if (!url) return;
+    if (!url.startsWith("/") && !url.startsWith("~") && !/^[a-zA-Z]:/.test(url) && !url.includes("twitch.tv")) {
+      errorMsg = "Enter a Twitch VOD URL or a local file path";
+      return;
+    }
+    videoFileName = url;
+    startPipeline(url);
   }
 
   getCurrentWindow().onDragDropEvent((e) => {
@@ -130,7 +275,7 @@
     } else if (e.payload.type === "drop") {
       dragOver = false;
       const path = e.payload.paths?.[0];
-      if (path) startPipeline(path);
+      if (path && !pipelineRunning) startPipeline(path);
     } else {
       dragOver = false;
     }
@@ -149,107 +294,84 @@
     screen = "import";
     progress = null;
     processLog = [];
+    pipelineRunning = false;
   }
-
-  function reset() {
-    screen = "import";
-    topics = [];
-    projectDir = "";
-    videoFileName = "";
-    progress = null;
-    processLog = [];
-    errorMsg = null;
-  }
-
-  async function copyTimestamp(topic: Topic) {
-    await navigator.clipboard.writeText(topic.duration_label);
-    copiedId = topic.topic_id;
-    setTimeout(() => { copiedId = null; }, 1500);
-  }
-
-  const progressPct = $derived(progress ? Math.round(progress.pct * 100) : 0);
 </script>
 
 <!-- ── Import ──────────────────────────────────────────────────────────────────── -->
 {#if screen === "import"}
   <main class="screen" class:drag-over={dragOver}>
     <p class="title">VideoTool</p>
-    <p class="">Transcribe and segment your video by topic</p>
+    <p class="">Paste a VOD link or add a video file. Let VideoTool map out your stream in minutes</p>
 
     {#if errorMsg}
       <p class="error-line">✗ {errorMsg} <button class="inline-btn" onclick={() => (errorMsg = null)}>dismiss</button></p>
     {/if}
 
     <div class="import-body">
-      <p class="hint">drop a video file here</p>
-      <p class="hint dim">or <button class="browse-btn" onclick={browseFile}>browse file</button></p>
+      <div class="url-row">
+        <input
+          type="text"
+          class="url-input"
+          placeholder="paste twitch vod url..."
+          bind:value={urlInput}
+          onkeydown={(e) => { if (e.key === "Enter") handleUrlSubmit(); }}
+        />
+        <button class="go-btn" onclick={handleUrlSubmit}>go</button>
+      </div>
+      <p class="hint dim">or drop a video file here · <button class="browse-btn" onclick={browseFile}>browse</button></p>
     </div>
+
+    <hr class="divider" />
+
+    <p class="flow-line">vod url or file <span class="flow-sep">→</span> extract audio <span class="flow-sep">→</span> transcribe <span class="flow-sep">→</span> detect beats <span class="flow-sep">→</span> topic map <span class="flow-check">✓</span></p>
+
+    {#if projects.length > 0}
+      <hr class="divider" />
+      <p class="dim">recent projects</p>
+      {#each projects as proj}
+        <button class="project-link" onclick={() => openProject(proj.project_dir)}>
+          {#if proj.channel}<span class="project-channel">{proj.channel}</span> {/if}{proj.title ?? proj.source_filename} <span class="dim">— {proj.created_at.slice(0, 10)}</span>
+        </button>
+      {/each}
+    {/if}
   </main>
 
 <!-- ── Processing ─────────────────────────────────────────────────────────────── -->
 {:else if screen === "processing"}
   <main class="screen">
     <p class="title">VideoTool</p>
-    <p class="dim">Analyzing: {videoFileName}</p>
+    <p class="dim">{videoFileName}</p>
 
     <div class="log">
       {#if processLog.length === 0}
         <p class="log-line">loading...</p>
-        <span class="spinner">{FRAMES[spinnerIdx]}</span>
       {:else}
         {#each processLog as line, i}
           <p class="log-line" class:dim={i < processLog.length - 1}>{line}</p>
         {/each}
-        <span class="spinner">{FRAMES[spinnerIdx]}</span>
       {/if}
+      <span class="spinner-line">
+        <span class="spinner">{FRAMES[spinnerIdx]}</span>
+        <span class="wait-msg">{currentWaitMsg}</span>
+      </span>
     </div>
 
     <div class="progress-track">
-      <div class="progress-fill" style="width: {progressPct}%"></div>
+      <div class="progress-fill" style="width: {displayPct}%"></div>
     </div>
-    <p class="dim pct">{progressPct}%</p>
+    <p class="dim pct">{Math.round(displayPct)}%</p>
 
     <div><button class="inline-btn" onclick={cancelPipeline}>[cancel]</button></div>
-  </main>
 
-<!-- ── Results ────────────────────────────────────────────────────────────────── -->
-{:else if screen === "results"}
-  <main class="screen">
-    <p class="title">VideoTool</p>
-    <p class="dim">{videoFileName} · {topics.length} topics</p>
-    <div><button class="inline-btn" onclick={reset}>[new]</button></div>
-  
-
-    {#if errorMsg}
-      <p class="error-line">✗ {errorMsg} <button class="inline-btn" onclick={() => (errorMsg = null)}>dismiss</button></p>
-    {/if}
-
-    {#if topics.length === 0 && !errorMsg}
-      <p class="hint dim">no topics found. try a different file or a longer recording.</p>
-    {:else}
-      {#each topics as topic, i (topic.topic_id)}
-        <div class="topic">
-          <p class="topic-head">
-            <span class="topic-num">{String(i + 1).padStart(2, "0")}</span>
-            <span class="topic-dur dim">{topic.duration_label}</span>
-            <span class="topic-label">{topic.label}</span>
-            <button
-              class="inline-btn copy"
-              onclick={() => copyTimestamp(topic)}
-              aria-label="Copy timestamp for {topic.label}"
-            >{copiedId === topic.topic_id ? "copied!" : "copy ↗"}</button>
-          </p>
-          <p class="topic-summary dim">{topic.summary}</p>
-        </div>
-      {/each}
-    {/if}
+    
   </main>
 {/if}
 
 <style>
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(body) {
-    font-family: "Courier New", Courier, monospace;
+    font-family: Monaco, "Cascadia Code", "Fira Code", "Courier New", monospace;
     font-size: 13px;
     line-height: 1.6;
     background: #0e0e0e;
@@ -266,21 +388,36 @@
   .screen.drag-over { background: #161616; }
 
   /* ── header ──────────────────────────────────────────────────────── */
-  .title { color: #fff; margin-bottom: 0.4rem; display: flex; align-items: baseline; gap: 0; }
-  .sep { color: #444; }
+  .title { color: #fff; margin-bottom: 0.4rem; }
   .dim { color: #555; }
-  .rule { height: 1px; background: #1e1e1e; margin-bottom: 1.5rem; }
 
   /* ── import ──────────────────────────────────────────────────────── */
-  .import-body { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.25rem; }
+  .import-body { margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
   .hint { color: #888; }
 
-  .cursor {
-    color: #888;
-    margin-top: 0.75rem;
-    animation: blink 1s step-end infinite;
-    display: inline-block;
+  .url-row { display: flex; gap: 0.5rem; max-width: 500px; }
+  .url-input {
+    flex: 1;
+    font-family: inherit;
+    font-size: 13px;
+    color: #c9c9c9;
+    background: #111;
+    border: 1px solid #333;
+    padding: 0.4rem 0.6rem;
+    outline: none;
   }
+  .url-input:focus { border-color: #555; }
+  .url-input::placeholder { color: #444; }
+  .go-btn {
+    font-family: inherit;
+    font-size: 13px;
+    color: #888;
+    background: none;
+    border: 1px solid #333;
+    padding: 0.4rem 0.8rem;
+    cursor: pointer;
+  }
+  .go-btn:hover { color: #c9c9c9; border-color: #666; }
 
   .browse-btn {
     font-family: inherit;
@@ -291,15 +428,39 @@
     border-bottom: 1px solid #444;
     cursor: pointer;
     padding: 0;
-    transition: color 0.1s, border-color 0.1s;
   }
   .browse-btn:hover { color: #c9c9c9; border-color: #888; }
+
+  /* ── flow line ──────────────────────────────────────────────────── */
+  .divider { border: none; border-top: 1px solid #222; margin: 24px 0 16px 0; }
+  .flow-line { color: #555; }
+  .flow-sep { color: #444; }
+  .flow-check { color: #4ADE80; }
+
+  /* ── project links ─────────────────────────────────────────────── */
+  .project-link {
+    font-family: inherit;
+    font-size: 13px;
+    color: #888;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+    display: block;
+    line-height: 1.6;
+  }
+  .project-link:hover { color: #c9c9c9; }
+  .project-channel { color: #555; margin-right: 0.5rem; }
 
   /* ── processing ──────────────────────────────────────────────────── */
   .log { margin-top: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.1rem; }
   .log-line { color: #c9c9c9; }
   .log-line.dim { color: #444; }
-  .spinner { color: #888; display: block; margin-top: 0.1rem; }
+
+  .spinner-line { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.1rem; }
+  .spinner { color: #888; }
+  .wait-msg { color: #555; font-size: 12px; }
 
   .progress-track {
     width: 100%;
@@ -311,25 +472,9 @@
   .progress-fill {
     height: 100%;
     background: #666;
-    transition: width 0.3s ease;
+    transition: width 0.2s ease;
   }
   .pct { margin-bottom: 1rem; }
-
-  /* ── results ─────────────────────────────────────────────────────── */
-  .topic {
-    padding: 0.75rem 0;
-    border-bottom: 1px solid #1a1a1a;
-  }
-  .topic-head {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    margin-bottom: 0.15rem;
-  }
-  .topic-num { color: #444; min-width: 2ch; }
-  .topic-dur { min-width: 10ch; }
-  .topic-label { color: #e0e0e0; flex: 1; }
-  .topic-summary { padding-left: calc(2ch + 0.75rem + 10ch + 0.75rem); color: #555; font-size: 12px; }
 
   /* ── shared ──────────────────────────────────────────────────────── */
   .inline-btn {
@@ -343,19 +488,12 @@
     transition: color 0.1s;
   }
   .inline-btn:hover { color: #c9c9c9; }
-  .inline-btn.right { margin-left: auto; }
-  .inline-btn.copy { white-space: nowrap; }
 
   .error-line {
     color: #c05050;
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
     display: flex;
     gap: 0.5rem;
     align-items: baseline;
-  }
-
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0; }
   }
 </style>

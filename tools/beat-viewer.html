@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Beat Timeline Viewer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Monaco, "Cascadia Code", "Fira Code", "Courier New", monospace; font-size: 13px; background: #0e0e0e; color: #c9c9c9; padding: 1rem; }
+
+  .top-bar { display: flex; gap: 1rem; margin-bottom: 0.75rem; align-items: center; }
+  .top-bar input[type="file"] { font-family: inherit; font-size: 12px; color: #888; }
+  .top-bar label { color: #666; }
+
+  video { width: 100%; max-height: 45vh; background: #000; display: block; margin-bottom: 0.5rem; }
+
+  #timeline { position: relative; width: 100%; overflow-x: auto; margin-bottom: 0.5rem; border: 1px solid #1e1e1e; background: #111; }
+  .topic-row { position: relative; height: 28px; border-bottom: 1px solid #1a1a1a; }
+  .topic-label-col { position: absolute; left: 0; top: 0; width: 140px; height: 100%; display: flex; align-items: center; padding: 0 6px; font-size: 10px; color: #666; z-index: 2; background: #111; border-right: 1px solid #1a1a1a; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .beat { position: absolute; top: 3px; height: 22px; border-radius: 2px; cursor: pointer; opacity: 0.85; transition: opacity 0.1s; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 10px; line-height: 22px; padding: 0 4px; color: rgba(0,0,0,0.7); min-width: 2px; }
+  .beat:hover { opacity: 1; z-index: 10; }
+
+  .beat[data-type="hook"]       { background: #c05050; }
+  .beat[data-type="build"]      { background: #4080c0; }
+  .beat[data-type="peak"]       { background: #c0a030; }
+  .beat[data-type="resolution"] { background: #40a060; }
+
+  #playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: #fff; z-index: 20; pointer-events: none; }
+
+  #hover-info { height: 2.4em; line-height: 2.4em; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 0.25rem; }
+
+  #json-area { width: 100%; height: 120px; background: #111; border: 1px solid #1e1e1e; color: #c9c9c9; font-family: inherit; font-size: 12px; padding: 0.5rem; resize: vertical; margin-top: 0.5rem; }
+  button { font-family: inherit; font-size: 12px; color: #888; background: none; border: 1px solid #333; padding: 0.3rem 0.8rem; cursor: pointer; }
+  button:hover { color: #c9c9c9; border-color: #666; }
+  .controls { display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: center; }
+
+  .legend { display: flex; gap: 1rem; margin-bottom: 0.5rem; }
+  .legend-item { display: flex; align-items: center; gap: 0.3rem; font-size: 11px; color: #666; }
+  .legend-swatch { width: 12px; height: 12px; border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <label>Video: <input type="file" id="video-input" accept="video/*"></label>
+  <label>JSON: <input type="file" id="json-input" accept=".json"></label>
+</div>
+
+<video id="player" controls></video>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-swatch" style="background:#c05050"></div>hook</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#4080c0"></div>build</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#c0a030"></div>peak</div>
+  <div class="legend-item"><div class="legend-swatch" style="background:#40a060"></div>resolution</div>
+</div>
+
+<div id="timeline">
+  <div id="playhead"></div>
+</div>
+
+<div id="hover-info">&nbsp;</div>
+
+<div class="controls">
+  <button id="load-btn">Load pasted JSON ↓</button>
+  <span id="status" style="color:#555"></span>
+</div>
+<textarea id="json-area" placeholder='Paste beats JSON here, or use the file picker above...'></textarea>
+
+<script>
+const player = document.getElementById("player");
+const timeline = document.getElementById("timeline");
+const playhead = document.getElementById("playhead");
+const hoverInfo = document.getElementById("hover-info");
+const status = document.getElementById("status");
+
+let duration = 0;
+let beats = [];
+const LABEL_W = 140;
+
+// ── Video loading ──────────────────────────────────────────────────
+document.getElementById("video-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  player.src = URL.createObjectURL(file);
+  player.load();
+});
+
+player.addEventListener("loadedmetadata", () => {
+  duration = player.duration;
+  if (beats.length) render();
+});
+
+// ── JSON loading ───────────────────────────────────────────────────
+document.getElementById("json-input").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  file.text().then(loadJSON);
+});
+
+document.getElementById("load-btn").addEventListener("click", () => {
+  loadJSON(document.getElementById("json-area").value);
+});
+
+function loadJSON(text) {
+  try {
+    const data = JSON.parse(text);
+    beats = data.beats || data;
+    status.textContent = `${beats.length} topics loaded`;
+    // infer duration from beats if video not loaded
+    if (!duration) {
+      let maxEnd = 0;
+      for (const t of beats) {
+        for (const b of t.beats) {
+          if (b.end_s > maxEnd) maxEnd = b.end_s;
+        }
+      }
+      duration = maxEnd;
+    }
+    render();
+  } catch (err) {
+    status.textContent = "JSON parse error: " + err.message;
+    status.style.color = "#c05050";
+    setTimeout(() => { status.style.color = "#555"; }, 3000);
+  }
+}
+
+// ── Rendering ──────────────────────────────────────────────────────
+function render() {
+  // clear old rows (keep playhead)
+  timeline.querySelectorAll(".topic-row").forEach(el => el.remove());
+
+  if (!duration || !beats.length) return;
+
+  const timelineW = timeline.clientWidth;
+
+  for (const topic of beats) {
+    const row = document.createElement("div");
+    row.className = "topic-row";
+
+    const label = document.createElement("div");
+    label.className = "topic-label-col";
+    label.textContent = topic.topic_label;
+    label.title = topic.topic_label;
+    row.appendChild(label);
+
+    for (const b of topic.beats) {
+      const el = document.createElement("div");
+      el.className = "beat";
+      el.dataset.type = b.type;
+      const left = LABEL_W + ((b.start_s / duration) * (timelineW - LABEL_W));
+      const width = Math.max(2, ((b.end_s - b.start_s) / duration) * (timelineW - LABEL_W));
+      el.style.left = left + "px";
+      el.style.width = width + "px";
+      el.title = `[${b.type}] ${fmtTime(b.start_s)}–${fmtTime(b.end_s)} (${b.confidence})\n${b.label}`;
+      el.textContent = b.label;
+
+      el.addEventListener("click", () => {
+        player.currentTime = b.start_s;
+        if (player.paused && player.src) player.play();
+      });
+      el.addEventListener("mouseenter", () => {
+        hoverInfo.textContent = `[${b.type}] ${fmtTime(b.start_s)}–${fmtTime(b.end_s)} | ${b.label}`;
+      });
+      el.addEventListener("mouseleave", () => {
+        hoverInfo.innerHTML = "&nbsp;";
+      });
+
+      row.appendChild(el);
+    }
+
+    timeline.appendChild(row);
+  }
+}
+
+// ── Playhead sync (only runs while playing to save battery) ────────
+let rafId = null;
+function updatePlayhead() {
+  if (duration > 0) {
+    const timelineW = timeline.clientWidth;
+    const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
+    playhead.style.left = x + "px";
+  }
+  rafId = requestAnimationFrame(updatePlayhead);
+}
+function syncPlayhead() {
+  if (duration > 0) {
+    const timelineW = timeline.clientWidth;
+    const x = LABEL_W + ((player.currentTime / duration) * (timelineW - LABEL_W));
+    playhead.style.left = x + "px";
+  }
+}
+player.addEventListener("play", () => { if (!rafId) updatePlayhead(); });
+player.addEventListener("pause", () => { if (rafId) { cancelAnimationFrame(rafId); rafId = null; } syncPlayhead(); });
+player.addEventListener("seeked", syncPlayhead);
+
+// ── Click-to-seek on timeline background ───────────────────────────
+timeline.addEventListener("click", (e) => {
+  if (e.target.classList.contains("beat")) return;
+  const rect = timeline.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  if (x < LABEL_W) return;
+  const pct = (x - LABEL_W) / (rect.width - LABEL_W);
+  player.currentTime = pct * duration;
+});
+
+// ── Resize handling ────────────────────────────────────────────────
+window.addEventListener("resize", () => { if (beats.length) render(); });
+
+// ── Utils ──────────────────────────────────────────────────────────
+function fmtTime(s) {
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ":" + String(sec).padStart(2, "0");
+}
+</script>
+</body>
+</html>

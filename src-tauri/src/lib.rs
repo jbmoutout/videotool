@@ -1,8 +1,13 @@
+use axum::body::Body;
+use axum::extract::State as AxumState;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio_util::io::ReaderStream;
 
 // ── shared state ──────────────────────────────────────────────────────────────
 
@@ -11,6 +16,14 @@ type ChildHandle = Arc<Mutex<Option<Child>>>;
 
 struct AppState {
     child: ChildHandle,
+    viewer_server_port: Arc<Mutex<Option<u16>>>,
+    viewer_project_dir: Arc<Mutex<String>>,
+}
+
+/// Shared state for the axum video/viewer server.
+#[derive(Clone)]
+struct ViewerServerState {
+    project_dir: Arc<Mutex<String>>,
 }
 
 // ── IPC message types ─────────────────────────────────────────────────────────
@@ -23,6 +36,8 @@ pub struct ProgressMsg {
     pub total: u32,
     pub pct: f64,
     pub msg: String,
+    #[serde(default)]
+    pub download_pct: Option<u32>,
 }
 
 /// Error line emitted by `vodtool pipeline --json-progress` on failure.
@@ -33,13 +48,17 @@ pub struct ErrorMsg {
     pub step: u32,
 }
 
-/// Done line emitted after step 5 succeeds.
+/// Done line emitted after pipeline succeeds.
 /// {"done":true,"project_dir":"/...","topic_count":7}
+/// Beats pipeline also adds: {"done":true,"project_dir":"/...","topic_count":6,"beat_count":18}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DoneMsg {
     pub done: bool,
     pub project_dir: String,
+    #[serde(default)]
     pub topic_count: u32,
+    #[serde(default)]
+    pub beat_count: u32,
 }
 
 /// Topic entry from topic_map_llm.json (subset of fields needed for UI).
@@ -52,13 +71,58 @@ pub struct TopicEntry {
     pub chunk_count: u32,
 }
 
+/// Beat entry for a single narrative beat within a topic.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BeatEntry {
+    #[serde(rename = "type")]
+    pub beat_type: String,
+    pub start_s: f64,
+    pub end_s: f64,
+    pub confidence: f64,
+    pub label: String,
+}
+
+/// Topic with narrative beats from beats.json.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BeatTopic {
+    pub topic_id: String,
+    pub topic_label: String,
+    pub beats: Vec<BeatEntry>,
+}
+
+/// Wrapper for beats.json.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+struct BeatsFile {
+    beats: Vec<BeatTopic>,
+}
+
+/// Summary of a project in the projects/ directory.
+#[derive(Debug, Serialize, Clone)]
+pub struct ProjectInfo {
+    pub project_id: String,
+    pub source_filename: String,
+    pub title: Option<String>,
+    pub channel: Option<String>,
+    pub created_at: String,
+    pub has_beats: bool,
+    pub project_dir: String,
+}
+
+/// Response from load_beats: beats data + video file path.
+#[derive(Debug, Serialize, Clone)]
+pub struct BeatsResponse {
+    pub beats: Vec<BeatTopic>,
+    pub video_path: Option<String>,
+    pub duration_seconds: Option<f64>,
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
 /// Start the vodtool pipeline for the given video path.
 /// Spawns subprocess, reads stdout line-by-line in a Tokio task,
 /// emits `progress`, `done`, or `error` events to the frontend.
 #[tauri::command]
-async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String> {
+async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<String>) -> Result<(), String> {
     let cli_path = resolve_cli_path(&app)?;
 
     // Augment PATH so the subprocess can find ffmpeg/ffprobe regardless of
@@ -73,8 +137,9 @@ async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String
     eprintln!("[vodtool-app] video_path = {:?}", video_path);
     eprintln!("[vodtool-app] PATH = {}", augmented_path);
 
+    let quality_val = quality.unwrap_or_else(|| "worst".to_string());
     let mut child = Command::new(&cli_path)
-        .args(["pipeline", &video_path, "--json-progress"])
+        .args(["beats", &video_path, "--json-progress", "--quality", &quality_val])
         .env("PATH", augmented_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
@@ -93,6 +158,8 @@ async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String
     tokio::spawn(async move {
         let reader = BufReader::new(stdout);
         let mut lines = reader.lines();
+        let mut got_terminal = false;
+        let mut last_non_json = String::new();
 
         loop {
             match lines.next_line().await {
@@ -101,51 +168,84 @@ async fn start_pipeline(app: AppHandle, video_path: String) -> Result<(), String
                     if line.is_empty() {
                         continue;
                     }
-                    parse_and_emit(&app_clone, &line);
+                    got_terminal |= parse_and_emit(&app_clone, &line, &mut last_non_json);
                 }
-                Ok(None) => {
-                    // Subprocess closed stdout — reap and notify frontend.
-                    let _ = app_clone.emit("pipeline-exit", ());
-                    break;
-                }
+                Ok(None) => break,
                 Err(e) => {
                     let _ = app_clone.emit("pipeline-error", format!("stdout read error: {e}"));
+                    got_terminal = true;
                     break;
                 }
             }
         }
 
-        // Reap child process — take out of mutex BEFORE awaiting to drop the lock.
+        // Reap child process and check exit status.
         let maybe_child = child_handle.lock().unwrap().take();
         if let Some(mut child) = maybe_child {
-            let _ = child.wait().await;
+            match child.wait().await {
+                Ok(status) if !got_terminal => {
+                    // Subprocess ended without emitting done or error — something crashed.
+                    let detail = if !last_non_json.is_empty() {
+                        format!(": {}", last_non_json)
+                    } else {
+                        String::new()
+                    };
+                    let msg = if status.success() {
+                        format!("Pipeline ended without producing results{detail}")
+                    } else {
+                        let code = status.code().map(|c| c.to_string()).unwrap_or("signal".into());
+                        format!("Pipeline process failed (exit code {code}){detail}")
+                    };
+                    let _ = app_clone.emit("pipeline-error", msg);
+                }
+                Err(e) if !got_terminal => {
+                    let _ = app_clone.emit("pipeline-error", format!("Failed to reap pipeline process: {e}"));
+                }
+                _ => {}
+            }
+        } else if !got_terminal {
+            // Child was taken (cancelled) — no error needed unless no terminal event.
+            // cancel_pipeline already handles UI reset, so this is a no-op.
         }
+
+        let _ = app_clone.emit("pipeline-exit", ());
     });
 
     Ok(())
 }
 
 /// Parse a single stdout line and emit the right Tauri event.
-fn parse_and_emit(app: &AppHandle, line: &str) {
+/// Returns `true` if a terminal event (done, error, beats_ready) was emitted.
+fn parse_and_emit(app: &AppHandle, line: &str, last_non_json: &mut String) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
-        // Non-JSON (Python warning/log) — ignore silently.
-        return;
+        // Non-JSON (Python warning/traceback) — log for debugging and keep
+        // the last line so we can include it in crash error messages.
+        eprintln!("[vodtool-app] subprocess: {line}");
+        *last_non_json = line.to_string();
+        return false;
     };
 
     if value.get("done").and_then(|v| v.as_bool()) == Some(true) {
         if let Ok(msg) = serde_json::from_value::<DoneMsg>(value) {
             let _ = app.emit("pipeline-done", msg);
+            return true;
         }
     } else if value.get("error").is_some() {
         if let Ok(msg) = serde_json::from_value::<ErrorMsg>(value) {
             let _ = app.emit("pipeline-error-msg", msg);
+            return true;
+        } else {
+            eprintln!("[vodtool-app] failed to deserialize error line: {line}");
         }
     } else if value.get("step").is_some() {
         if let Ok(msg) = serde_json::from_value::<ProgressMsg>(value) {
             let _ = app.emit("pipeline-progress", msg);
+        } else {
+            eprintln!("[vodtool-app] failed to deserialize progress line: {line}");
         }
     }
-    // Unknown JSON shape — ignore silently.
+
+    false
 }
 
 /// Load topics from project_dir/topic_map_llm.json (or fallback).
@@ -166,6 +266,356 @@ fn load_topics(project_dir: String) -> Result<Vec<TopicEntry>, String> {
     }
 
     Err(format!("No topic map found in {project_dir}"))
+}
+
+/// Load beats from project_dir/beats.json + discover video file path.
+#[tauri::command]
+fn load_beats(project_dir: String) -> Result<BeatsResponse, String> {
+    let base = std::path::Path::new(&project_dir);
+
+    // Load beats.json
+    let beats_path = base.join("beats.json");
+    if !beats_path.exists() {
+        return Err(format!("beats.json not found in {project_dir}"));
+    }
+
+    let data = std::fs::read_to_string(&beats_path)
+        .map_err(|e| format!("Failed to read beats.json: {e}"))?;
+    let beats_file: BeatsFile = serde_json::from_str(&data)
+        .map_err(|e| format!("Failed to parse beats.json: {e}"))?;
+
+    // Discover video file — check source.* files in project dir
+    let video_path = find_video_file(base);
+
+    // Get duration from meta.json
+    let duration_seconds = base.join("meta.json")
+        .exists()
+        .then(|| {
+            std::fs::read_to_string(base.join("meta.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+                .and_then(|v| v.get("duration_seconds")?.as_f64())
+        })
+        .flatten();
+
+    Ok(BeatsResponse {
+        beats: beats_file.beats,
+        video_path,
+        duration_seconds,
+    })
+}
+
+/// Find the video file in a project directory (source.mp4, source.mkv, etc.).
+fn find_video_file(base: &std::path::Path) -> Option<String> {
+    let extensions = ["mp4", "mkv", "mov", "avi", "webm", "ts"];
+    for ext in &extensions {
+        let path = base.join(format!("source.{ext}"));
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+// ── viewer server ────────────────────────────────────────────────────────────
+
+/// The embedded viewer HTML (auto-loading variant of beat-viewer.html).
+const VIEWER_HTML: &str = include_str!("viewer.html");
+
+/// Start a localhost HTTP server that serves the beat viewer, video, and beats.json.
+/// Returns the port number so the frontend can navigate to it.
+#[tauri::command]
+async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16, String> {
+    // Check if server is already running
+    let port_handle = app.state::<AppState>().viewer_server_port.clone();
+    let shared_dir = app.state::<AppState>().viewer_project_dir.clone();
+
+    // Always update the project dir (so the running server serves the new project)
+    *shared_dir.lock().unwrap() = project_dir.clone();
+
+    if let Some(port) = *port_handle.lock().unwrap() {
+        // Server already running — project dir updated above, reuse the port
+        return Ok(port);
+    }
+
+    let state = ViewerServerState {
+        project_dir: shared_dir.clone(),
+    };
+
+    let cors = tower_http::cors::CorsLayer::permissive();
+
+    let router = axum::Router::new()
+        .route("/", axum::routing::get(serve_viewer_html))
+        .route("/video", axum::routing::get(serve_video))
+        .route("/beats.json", axum::routing::get(serve_beats_json))
+        .layer(cors)
+        .with_state(state);
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .map_err(|e| format!("Failed to bind viewer server: {e}"))?;
+
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get port: {e}"))?
+        .port();
+
+    eprintln!("[vodtool-app] viewer server starting on http://127.0.0.1:{port}");
+
+    tokio::spawn(async move {
+        axum::serve(listener, router)
+            .await
+            .unwrap_or_else(|e| eprintln!("[vodtool-app] viewer server error: {e}"));
+    });
+
+    *port_handle.lock().unwrap() = Some(port);
+
+    Ok(port)
+}
+
+/// Serve the embedded viewer HTML.
+async fn serve_viewer_html() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        VIEWER_HTML,
+    )
+}
+
+/// Serve beats.json from the project directory.
+async fn serve_beats_json(AxumState(state): AxumState<ViewerServerState>) -> impl IntoResponse {
+    let project_dir = state.project_dir.lock().unwrap().clone();
+    let path = std::path::Path::new(&project_dir).join("beats.json");
+    match tokio::fs::read_to_string(&path).await {
+        Ok(data) => (
+            StatusCode::OK,
+            [("content-type", "application/json")],
+            data,
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            format!("beats.json not found: {e}"),
+        )
+            .into_response(),
+    }
+}
+
+/// Serve the video file with HTTP Range request support for seeking.
+/// Streams all responses — never loads the whole file into memory.
+async fn serve_video(
+    AxumState(state): AxumState<ViewerServerState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let project_dir = state.project_dir.lock().unwrap().clone();
+    let base = std::path::Path::new(&project_dir);
+    let video_path = match find_video_file(base) {
+        Some(p) => p,
+        None => {
+            return (StatusCode::NOT_FOUND, "No video file found").into_response();
+        }
+    };
+
+    let metadata = match tokio::fs::metadata(&video_path).await {
+        Ok(m) => m,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot read video: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    let file_size = metadata.len();
+    let content_type = if video_path.ends_with(".mkv") {
+        "video/x-matroska"
+    } else if video_path.ends_with(".webm") {
+        "video/webm"
+    } else {
+        "video/mp4"
+    };
+
+    // Parse Range header
+    if let Some(range_header) = headers.get("range") {
+        if let Ok(range_str) = range_header.to_str() {
+            if let Some(range) = parse_range(range_str, file_size) {
+                let (start, end) = range;
+                let length = end - start + 1;
+
+                let mut file = match tokio::fs::File::open(&video_path).await {
+                    Ok(f) => f,
+                    Err(e) => {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("Cannot open video: {e}"),
+                        )
+                            .into_response();
+                    }
+                };
+
+                if file.seek(std::io::SeekFrom::Start(start)).await.is_err() {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "Seek failed")
+                        .into_response();
+                }
+
+                // Stream the range — .take() caps bytes without loading into memory
+                let limited = file.take(length);
+                let stream = ReaderStream::new(limited);
+                let body = Body::from_stream(stream);
+
+                let content_range = format!("bytes {start}-{end}/{file_size}");
+                let len_str = length.to_string();
+
+                return match axum::http::Response::builder()
+                    .status(StatusCode::PARTIAL_CONTENT)
+                    .header("content-type", content_type)
+                    .header("accept-ranges", "bytes")
+                    .header("content-range", content_range)
+                    .header("content-length", len_str)
+                    .body(body)
+                {
+                    Ok(resp) => resp.into_response(),
+                    Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Response build failed").into_response(),
+                };
+            }
+        }
+    }
+
+    // No Range header — stream the full file (never load into memory)
+    let file = match tokio::fs::File::open(&video_path).await {
+        Ok(f) => f,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Cannot read video: {e}"),
+            )
+                .into_response();
+        }
+    };
+
+    let stream = ReaderStream::new(file);
+    let body = Body::from_stream(stream);
+    let len_str = file_size.to_string();
+
+    match axum::http::Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", content_type)
+        .header("accept-ranges", "bytes")
+        .header("content-length", len_str)
+        .body(body)
+    {
+        Ok(resp) => resp.into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Response build failed").into_response(),
+    }
+}
+
+/// Parse an HTTP Range header like "bytes=START-", "bytes=START-END", or "bytes=-N" (suffix).
+fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
+    if file_size == 0 {
+        return None;
+    }
+
+    let range_str = range_str.strip_prefix("bytes=")?;
+    let parts: Vec<&str> = range_str.splitn(2, '-').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    // Suffix range: "bytes=-500" means last 500 bytes
+    if parts[0].is_empty() {
+        let suffix_len: u64 = parts[1].parse().ok()?;
+        if suffix_len == 0 {
+            return None;
+        }
+        let start = file_size.saturating_sub(suffix_len);
+        return Some((start, file_size - 1));
+    }
+
+    let start: u64 = parts[0].parse().ok()?;
+    let end: u64 = if parts[1].is_empty() {
+        file_size - 1
+    } else {
+        parts[1].parse().ok()?
+    };
+
+    if start > end || start >= file_size {
+        return None;
+    }
+
+    Some((start, end.min(file_size - 1)))
+}
+
+/// List all projects in the projects/ directory.
+#[tauri::command]
+fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+    let home = std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_default();
+    let projects_dir = home.join(".vodtool").join("projects");
+
+    if !projects_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut results = Vec::new();
+
+    let entries = std::fs::read_dir(&projects_dir)
+        .map_err(|e| format!("Failed to read projects dir: {e}"))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let meta_path = path.join("meta.json");
+        if !meta_path.exists() {
+            continue;
+        }
+
+        let Ok(data) = std::fs::read_to_string(&meta_path) else {
+            continue;
+        };
+        let Ok(meta) = serde_json::from_str::<serde_json::Value>(&data) else {
+            continue;
+        };
+
+        let project_id = meta.get("project_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let source_filename = meta.get("source_filename")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let title = meta.get("title")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let channel = meta.get("channel")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let created_at = meta.get("created_at")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let has_beats = path.join("beats.json").exists();
+
+        results.push(ProjectInfo {
+            project_id,
+            source_filename,
+            title,
+            channel,
+            created_at,
+            has_beats,
+            project_dir: path.to_string_lossy().to_string(),
+        });
+    }
+
+    // Sort by created_at descending (newest first)
+    results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+
+    Ok(results)
 }
 
 /// Cancel the running pipeline (kill subprocess).
@@ -251,11 +701,16 @@ mod tests {
 pub fn run() {
     let child_handle: ChildHandle = Arc::new(Mutex::new(None));
     let child_for_event = child_handle.clone();
+    let viewer_server_port: Arc<Mutex<Option<u16>>> = Arc::new(Mutex::new(None));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { child: child_handle })
+        .manage(AppState {
+            child: child_handle,
+            viewer_server_port,
+            viewer_project_dir: Arc::new(Mutex::new(String::new())),
+        })
         .on_window_event(move |_window, event| {
             // Kill subprocess when user closes the app — prevents orphaned process (TODO #9).
             if let tauri::WindowEvent::CloseRequested { .. } = event {
@@ -267,7 +722,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             start_pipeline,
             load_topics,
+            load_beats,
+            start_viewer_server,
             cancel_pipeline,
+            list_projects,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

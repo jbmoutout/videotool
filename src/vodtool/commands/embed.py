@@ -167,6 +167,7 @@ def embed_chunks(
             )
         conn.commit()
     except Exception as e:
+        _last_error = f"Error storing embeddings: {e}"
         console.print(f"[red]Error storing embeddings: {e}[/red]")
         conn.rollback()
         conn.close()
