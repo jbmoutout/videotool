@@ -15,10 +15,16 @@ Audio chunking strategy:
   word at 2h30m appears at 9000s, not 0s.
 """
 
+import logging
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Optional, Protocol, runtime_checkable
+
+logger = logging.getLogger("vodtool")
+
+MAX_CONCURRENT_TRANSCRIPTIONS = 4
 
 WHISPER_MAX_BYTES = 25 * 1024 * 1024  # 25 MB
 CHUNK_DURATION_SECONDS = 600  # 10 minutes per chunk
@@ -89,29 +95,48 @@ class _WhisperAPIBase:
         total_duration = _probe_duration(audio_path)
         n_chunks = max(1, int(total_duration / CHUNK_DURATION_SECONDS) + 1)
 
-        all_segments: list[dict] = []
+        # Build list of (index, offset) for chunks that fall within duration
+        chunk_specs = [
+            (i, i * CHUNK_DURATION_SECONDS)
+            for i in range(n_chunks)
+            if i * CHUNK_DURATION_SECONDS < total_duration
+        ]
+
+        logger.info(
+            f"Transcribing {len(chunk_specs)} chunks "
+            f"({CHUNK_DURATION_SECONDS}s each, {MAX_CONCURRENT_TRANSCRIPTIONS} workers)"
+        )
+
         detected_language: str = "unknown"
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            for i in range(n_chunks):
-                offset = i * CHUNK_DURATION_SECONDS
-                if offset >= total_duration:
-                    break
 
-                chunk_path = Path(tmp_dir) / f"chunk_{i:04d}.mp3"
+            def _process_chunk(spec: tuple[int, float]) -> tuple[int, dict]:
+                idx, offset = spec
+                chunk_path = Path(tmp_dir) / f"chunk_{idx:04d}.mp3"
                 _extract_chunk(audio_path, chunk_path, start=offset, duration=CHUNK_DURATION_SECONDS)
-
                 try:
                     result = self._transcribe_file(chunk_path, language, offset_seconds=offset)
                 except Exception as e:
                     raise RuntimeError(
-                        f"Transcription failed on chunk {i + 1} of {n_chunks}: {e}"
+                        f"Transcription failed on chunk {idx + 1} of {len(chunk_specs)}: {e}"
                     ) from e
+                return idx, result
 
-                if detected_language == "unknown" and result["language"] != "unknown":
-                    detected_language = result["language"]
+            results: dict[int, dict] = {}
+            with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TRANSCRIPTIONS) as executor:
+                futures = {executor.submit(_process_chunk, spec): spec[0] for spec in chunk_specs}
+                for future in as_completed(futures):
+                    idx, result = future.result()
+                    results[idx] = result
+                    if detected_language == "unknown" and result["language"] != "unknown":
+                        detected_language = result["language"]
+                    logger.info(f"  chunk {idx + 1}/{len(chunk_specs)} done")
 
-                all_segments.extend(result["segments"])
+            # Reassemble segments in order
+            all_segments: list[dict] = []
+            for i in sorted(results):
+                all_segments.extend(results[i]["segments"])
 
         return {
             "language": detected_language,
