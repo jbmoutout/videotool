@@ -6,6 +6,9 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.validation import validate_project_path
 from rich.table import Table
 
 console = Console()
@@ -191,8 +194,9 @@ def diarize_review_command(project_path: Path = typer.Argument(..., help="Path t
     BACKGROUND (e.g., audio from video being watched). Background
     speakers are excluded from topic analysis like OTHER speakers.
     """
-    if not project_path.exists():
-        console.print(f"[red]Error: Project path does not exist: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         raise typer.Exit(1)
 
     # Check for required files
@@ -210,11 +214,13 @@ def diarize_review_command(project_path: Path = typer.Argument(..., help="Path t
         raise typer.Exit(1)
 
     # Load files
-    with diarization_file.open() as f:
-        diarization_segments = json.load(f)
+    diarization_segments = safe_read_json(diarization_file)
+    if diarization_segments is None:
+        raise typer.Exit(1)
 
-    with speaker_map_file.open() as f:
-        speaker_map = json.load(f)
+    speaker_map = safe_read_json(speaker_map_file)
+    if speaker_map is None:
+        raise typer.Exit(1)
 
     # Ensure background_speakers key exists (backwards compatibility)
     if "background_speakers" not in speaker_map:

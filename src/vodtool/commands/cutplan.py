@@ -7,6 +7,9 @@ from typing import Optional
 
 from rich.console import Console
 
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.validation import validate_project_path
+
 console = Console()
 logger = logging.getLogger("vodtool")
 
@@ -153,12 +156,9 @@ def generate_cutplan(
         Path to the cutplan.json file, or None if generation failed
     """
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return None
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return None
 
     # Map source to filename(s)
@@ -201,11 +201,8 @@ def generate_cutplan(
     # Load topic map
     console.print(f"[cyan]Loading topic map from {topic_map_path.name}...[/cyan]")
 
-    try:
-        with topic_map_path.open(encoding="utf-8") as f:
-            topics = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading topic map: {e}[/red]")
+    topics = safe_read_json(topic_map_path)
+    if topics is None:
         return None
 
     if not topics:
@@ -213,11 +210,8 @@ def generate_cutplan(
         return None
 
     # Load metadata
-    try:
-        with meta_path.open(encoding="utf-8") as f:
-            metadata = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading metadata: {e}[/red]")
+    metadata = safe_read_json(meta_path)
+    if metadata is None:
         return None
 
     total_duration = metadata.get("duration_seconds")
