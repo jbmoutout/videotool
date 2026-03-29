@@ -1,24 +1,25 @@
 # Release Setup — Manual TODOs
 
-## Apple Developer Signing (one-time, ~$99/year)
+## Apple Developer Signing (one-time, ~$99/year) - DONE 29/03
 
-1. **Enroll** at https://developer.apple.com/programs/enroll/ ($99/yr, Individual plan). Takes 24-48h for verification.
-2. **Create certificate** — In Keychain Access: Certificate Assistant > Request a Certificate > save to disk. Then at https://developer.apple.com/account/resources/certificates/list click **+** > **Developer ID Application** > upload the `.certSigningRequest`.
+1. **Enroll** at [https://developer.apple.com/programs/enroll/](https://developer.apple.com/programs/enroll/) ($99/yr, Individual plan). Takes 24-48h for verification.
+2. **Create certificate** — In Keychain Access: Certificate Assistant > Request a Certificate > save to disk. Then at [https://developer.apple.com/account/resources/certificates/list](https://developer.apple.com/account/resources/certificates/list) click **+** > **Developer ID Application** > upload the `.certSigningRequest`.
 3. **Export .p12** — In Keychain Access > My Certificates, right-click the cert > Export as `.p12`. Set a password.
 4. **Base64 encode**:
-   ```bash
+  ```bash
    base64 -i Certificates.p12 -o cert-base64.txt
-   ```
+  ```
 5. **Set 6 GitHub secrets** (Settings > Secrets > Actions):
 
-   | Secret | Value |
-   |--------|-------|
-   | `APPLE_CERTIFICATE` | Contents of `cert-base64.txt` |
-   | `APPLE_CERTIFICATE_PASSWORD` | Password from .p12 export |
-   | `APPLE_SIGNING_IDENTITY` | `Developer ID Application: Your Name (TEAMID)` — get exact string from `security find-identity -v -p codesigning` |
-   | `APPLE_ID` | Your Apple ID email |
-   | `APPLE_PASSWORD` | App-specific password from https://account.apple.com/ > Sign-In and Security > App-Specific Passwords |
-   | `APPLE_TEAM_ID` | 10-char ID from https://developer.apple.com/account > Membership Details |
+  | Secret                       | Value                                                                                                                               |
+  | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+  | `APPLE_CERTIFICATE`          | Contents of `cert-base64.txt`                                                                                                       |
+  | `APPLE_CERTIFICATE_PASSWORD` | Password from .p12 export                                                                                                           |
+  | `APPLE_SIGNING_IDENTITY`     | `Developer ID Application: Your Name (TEAMID)` — get exact string from `security find-identity -v -p codesigning`                   |
+  | `APPLE_ID`                   | Your Apple ID email                                                                                                                 |
+  | `APPLE_PASSWORD`             | App-specific password from [https://account.apple.com/](https://account.apple.com/) > Sign-In and Security > App-Specific Passwords |
+  | `APPLE_TEAM_ID`              | 10-char ID from [https://developer.apple.com/account](https://developer.apple.com/account) > Membership Details                     |
+
 
 ### Gotchas
 
@@ -30,39 +31,30 @@
 
 ## Cloudflare Worker (one-time, free tier)
 
-1. **Create account** at https://dash.cloudflare.com/ (free)
+1. **Create account** at [https://dash.cloudflare.com/](https://dash.cloudflare.com/) (free)
 2. **Login**:
-   ```bash
+  ```bash
    npx wrangler login
-   ```
+  ```
 3. **Create KV namespace** (for rate limiting):
-   ```bash
+  ```bash
    cd cloudflare-worker
    npx wrangler kv namespace create RATE_LIMITS
-   ```
+  ```
    Copy the returned ID into `wrangler.toml` where it says `id = ""`.
 4. **Deploy**:
-   ```bash
+  ```bash
    npx wrangler deploy
-   ```
+  ```
 5. **Set secrets**:
-   ```bash
+  ```bash
    npx wrangler secret put GROQ_API_KEY
    npx wrangler secret put ANTHROPIC_API_KEY
-   ```
+  ```
 6. **Verify**:
-   ```bash
+  ```bash
    curl https://vodtool-api.<your-subdomain>.workers.dev/health
-   ```
+  ```
 
 ---
 
-## Node Upgrade (optional)
-
-Current: 20.9.0. Wrangler wants >= 20.18.1.
-
-```bash
-nvm install 20
-# or
-brew upgrade node
-```
