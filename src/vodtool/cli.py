@@ -29,6 +29,8 @@ from vodtool.commands.ingest import ingest_video
 from vodtool.commands.inspect_topic import inspect_topic_command
 from vodtool.commands.label_topics import label_topics_command
 from vodtool.commands.list_topics import list_topics_command
+from vodtool.commands.llm_beats import detect_beats
+from vodtool.commands.llm_beats import get_last_error as get_beats_error
 from vodtool.commands.llm_topics import get_last_error as get_llm_error
 from vodtool.commands.llm_topics import llm_topics
 from vodtool.commands.merge_topics import merge_topics_command
@@ -282,6 +284,189 @@ def export(
         raise typer.Exit(code=1)
 
 
+def _run_ingest_and_transcribe(
+    input_video_path: str,
+    json_progress: bool,
+    total_steps: int,
+    quality: str = "worst",
+    transcription_provider: str = "groq",
+    whisper_model: Optional[str] = None,
+    language: Optional[str] = None,
+):
+    """
+    Shared helper: run ingest + transcribe (steps 1–2 of any pipeline).
+
+    Returns (project_dir, progress_fn, fail_fn) or exits on error.
+    """
+    import json as _json
+    import sys
+
+    ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
+
+    def progress(step: int, msg: str):
+        if json_progress:
+            sys.stdout.write(
+                _json.dumps({
+                    "step": step,
+                    "total": total_steps,
+                    "pct": round((step - 1) / total_steps, 3),
+                    "msg": msg,
+                })
+                + "\n"
+            )
+            sys.stdout.flush()
+        else:
+            console.print(f"\n[bold cyan]Step {step}/{total_steps}: {msg}[/bold cyan]")
+
+    def fail(step: int, msg: str):
+        if json_progress:
+            sys.stdout.write(_json.dumps({"error": msg, "step": step}) + "\n")
+            sys.stdout.flush()
+        raise typer.Exit(code=1)
+
+    # Step 1: Ingest (with download progress for Twitch URLs)
+    progress(1, "Ingesting video...")
+
+    def _download_progress(pct: float):
+        """Emit download sub-step progress (0-85% of step 1)."""
+        if json_progress:
+            # Download is ~85% of step 1 time for Twitch URLs.
+            # Reserve 15% for remux + audio extraction.
+            effective_pct = pct * 0.85
+            sys.stdout.write(
+                _json.dumps({
+                    "step": 1,
+                    "total": total_steps,
+                    "pct": round(effective_pct / total_steps, 3),
+                    "msg": f"Downloading video: {int(pct * 100)}%",
+                    "download_pct": min(round(pct * 100), 100),
+                })
+                + "\n"
+            )
+            sys.stdout.flush()
+
+    def _ingest_status(msg: str):
+        """Emit ingest sub-step status (shown as wait message)."""
+        if json_progress:
+            sys.stdout.write(
+                _json.dumps({
+                    "step": 1,
+                    "total": total_steps,
+                    "pct": round(0.01 / total_steps, 3),
+                    "msg": msg,
+                })
+                + "\n"
+            )
+            sys.stdout.flush()
+
+    project_dir = ingest_video(
+        input_video_path, ffmpeg_path, quality=quality,
+        download_progress_callback=_download_progress if json_progress else None,
+        status_callback=_ingest_status if json_progress else None,
+    )
+    if project_dir is None:
+        fail(1, get_ingest_error() or "Ingest failed")
+
+    # Use language from Twitch metadata if not explicitly provided
+    if language is None:
+        meta_path = project_dir / "meta.json"
+        if meta_path.exists():
+            import json as _json_meta
+            try:
+                meta = _json_meta.loads(meta_path.read_text())
+                language = meta.get("language")
+            except Exception:
+                pass
+
+    # Step 2: Transcribe
+    progress(2, "Transcribing audio...")
+    transcript_path = transcribe_audio(
+        project_dir, whisper_model, False, language, transcription_provider
+    )
+    if transcript_path is None:
+        fail(2, get_transcribe_error() or "Transcription failed")
+
+    return project_dir, progress, fail
+
+
+@app.command()
+def beats(
+    input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
+    quality: str = typer.Option(
+        "worst",
+        "--quality",
+        help="Video quality for Twitch downloads (default: 'worst', use 'best' for export quality)",
+    ),
+    transcription_provider: str = typer.Option(
+        "groq",
+        "--transcription-provider",
+        help="Transcription provider: 'groq' (default, fast) or 'openai'",
+    ),
+    whisper_model: Optional[str] = typer.Option(
+        None,
+        "--whisper-model",
+        help="Transcription model override (default: whisper-large-v3-turbo for groq, whisper-1 for openai)",
+    ),
+    language: Optional[str] = typer.Option(
+        None,
+        "--language",
+        help="Language code (auto-detect if not specified)",
+    ),
+    json_progress: bool = typer.Option(
+        False, "--json-progress", help="Emit JSON progress lines (for Tauri IPC)"
+    ),
+):
+    """
+    Run beat detection pipeline: ingest → transcribe → llm-beats.
+
+    Simplified 3-step pipeline. The LLM identifies topics AND narrative beats
+    (hook/build/peak/resolution) in a single call from the full transcript.
+    With --json-progress, emits lines like: {"step":1,"total":3,"pct":0.333,"msg":"..."}
+    """
+    import json as _json
+    import sys
+
+    total = 3
+
+    project_dir, progress, fail = _run_ingest_and_transcribe(
+        input_video_path, json_progress, total,
+        quality=quality,
+        transcription_provider=transcription_provider,
+        whisper_model=whisper_model,
+        language=language,
+    )
+
+    # Step 3: LLM beat detection
+    progress(3, "Analyzing narrative structure...")
+    beats_path = detect_beats(project_dir, json_progress=json_progress)
+    if beats_path is None:
+        fail(3, get_beats_error() or "Beat detection failed")
+
+    try:
+        beats_data = _json.loads(beats_path.read_text())
+        beat_count = sum(len(t["beats"]) for t in beats_data.get("beats", []))
+        topic_count = len(beats_data.get("beats", []))
+    except Exception:
+        beat_count = 0
+        topic_count = 0
+
+    # Final done event
+    if json_progress:
+        sys.stdout.write(
+            _json.dumps({
+                "done": True,
+                "project_dir": str(project_dir),
+                "topic_count": topic_count,
+                "beat_count": beat_count,
+            })
+            + "\n"
+        )
+        sys.stdout.flush()
+    else:
+        console.print("\n[bold green]✓ Beat detection complete![/bold green]")
+        console.print(f"[bold]Project:[/bold] {project_dir}")
+
+
 @app.command()
 def pipeline(
     input_video_path: str = typer.Argument(..., help="Path to video file or Twitch VOD URL"),
@@ -333,40 +518,15 @@ def pipeline(
     import json as _json
     import sys
 
-    ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
     total = 5
 
-    def progress(step: int, msg: str):
-        if json_progress:
-            sys.stdout.write(
-                _json.dumps(
-                    {"step": step, "total": total, "pct": round(step / total, 3), "msg": msg}
-                )
-                + "\n"
-            )
-            sys.stdout.flush()
-        else:
-            console.print(f"\n[bold cyan]Step {step}/{total}: {msg}[/bold cyan]")
-
-    def fail(step: int, msg: str):
-        if json_progress:
-            sys.stdout.write(_json.dumps({"error": msg, "step": step}) + "\n")
-            sys.stdout.flush()
-        raise typer.Exit(code=1)
-
-    # Step 1: Ingest
-    progress(1, "Ingesting video...")
-    project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
-    if project_dir is None:
-        fail(1, get_ingest_error() or "Ingest failed")
-
-    # Step 2: Transcribe
-    progress(2, "Transcribing audio...")
-    transcript_path = transcribe_audio(
-        project_dir, whisper_model, False, language, transcription_provider
+    project_dir, progress, fail = _run_ingest_and_transcribe(
+        input_video_path, json_progress, total,
+        quality=quality,
+        transcription_provider=transcription_provider,
+        whisper_model=whisper_model,
+        language=language,
     )
-    if transcript_path is None:
-        fail(2, get_transcribe_error() or "Transcription failed")
 
     # Step 3: Chunks
     progress(3, "Creating semantic chunks...")
@@ -404,6 +564,21 @@ def pipeline(
         console.print(f"  vodtool show-topics {project_dir}")
         console.print(f"  vodtool cutplan {project_dir} --topic topic_0000")
         console.print(f"  vodtool export {project_dir}")
+
+
+@app.command(name="llm-beats")
+def llm_beats_cmd(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+):
+    """
+    Detect narrative beats from an existing transcript.
+
+    Runs only the LLM beat detection step (no ingest, no transcribe).
+    Requires transcript_raw.json in the project directory.
+    """
+    result = detect_beats(project_path)
+    if result is None:
+        raise typer.Exit(code=1)
 
 
 @app.command(name="inspect-topic")

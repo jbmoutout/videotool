@@ -1,6 +1,5 @@
 """Topic inspection command for vodtool - debug and analyze topics."""
 
-import json
 import logging
 import sqlite3
 from pathlib import Path
@@ -8,6 +7,8 @@ from pathlib import Path
 import numpy as np
 from rich.console import Console
 from rich.table import Table
+from vodtool.utils.file_utils import safe_read_json
+from vodtool.utils.validation import validate_project_path
 
 console = Console()
 logger = logging.getLogger("vodtool")
@@ -150,12 +151,9 @@ def inspect_topic_command(project_path: Path, topic_id: str) -> None:
         topic_id: Topic ID to inspect (e.g., 'topic_0000')
     """
     # Validate project directory
-    if not project_path.exists():
-        console.print(f"[red]Error: Project directory not found: {project_path}[/red]")
-        return
-
-    if not project_path.is_dir():
-        console.print(f"[red]Error: Not a directory: {project_path}[/red]")
+    error = validate_project_path(project_path)
+    if error:
+        console.print(f"[red]Error: {error}[/red]")
         return
 
     # Check for topic_map.json (try labeled first, then unlabeled)
@@ -180,11 +178,8 @@ def inspect_topic_command(project_path: Path, topic_id: str) -> None:
     # Load topic map
     console.print(f"[cyan]Loading topic map from {topic_map_path.name}...[/cyan]\n")
 
-    try:
-        with topic_map_path.open(encoding="utf-8") as f:
-            topics = json.load(f)
-    except Exception as e:
-        console.print(f"[red]Error loading topic map: {e}[/red]")
+    topics = safe_read_json(topic_map_path)
+    if topics is None:
         return
 
     # Find the requested topic
