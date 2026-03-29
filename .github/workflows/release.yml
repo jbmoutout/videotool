@@ -17,6 +17,8 @@ jobs:
             args: --target aarch64-apple-darwin
           - platform: macos-latest
             args: --target x86_64-apple-darwin
+          - platform: windows-latest
+            args: ""
 
     runs-on: ${{ matrix.platform }}
 
@@ -29,17 +31,31 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Python dependencies and build CLI binary
+      - name: Install Python dependencies and build CLI binary (macOS)
+        if: matrix.platform == 'macos-latest'
         run: |
           pip install pyinstaller
           pip install -e ".[dev]"
           pyinstaller vodtool.spec
-          # Place the binary where Tauri's externalBin can find it
           cp dist/vodtool src-tauri/binaries/vodtool-$(rustc -Vv | grep host | cut -f2 -d' ')
+
+      - name: Install Python dependencies and build CLI binary (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          pip install pyinstaller
+          pip install -e ".[dev]"
+          pyinstaller vodtool.spec
+          $target = rustc -Vv | Select-String "host:" | ForEach-Object { $_.Line.Split(" ")[1] }
+          Copy-Item "dist\vodtool.exe" "src-tauri\binaries\vodtool-$target.exe"
 
       - name: Set up Rust target
         if: matrix.platform == 'macos-latest'
         run: rustup target add ${{ matrix.args == '--target aarch64-apple-darwin' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin' }}
+
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows-latest'
+        run: choco install ffmpeg yt-dlp -y
 
       - name: Install Node.js
         uses: actions/setup-node@v4
