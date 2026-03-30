@@ -183,24 +183,43 @@ jobs:
           }
           $bundleRoot = $candidateRoots[0]
 
-          $installer = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "*.exe" |
-            Where-Object { $_.Name -like "*setup*.exe" -or $_.Name -like "*installer*.exe" } |
-            Select-Object -First 1
-          if (-not $installer) {
-            $installer = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "*.msi" | Select-Object -First 1
-          }
-          if (-not $installer) {
-            throw "No Windows installer found under $bundleRoot"
+          Write-Host "Using bundle root: $bundleRoot"
+
+          # 1) Direct search for embedded CLI binaries in portable bundle layouts.
+          $direct = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "videotool*.exe" |
+            Where-Object { $_.Name -notlike "videotool-app*" }
+          if ($direct -and $direct.Count -gt 0) {
+            Write-Host "Found bundled CLI binary on disk:"
+            $direct | ForEach-Object { Write-Host "  $($_.FullName)" }
+            exit 0
           }
 
-          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue)
-          if (-not $sevenZip) { $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue) }
-          if (-not $sevenZip) {
-            throw "7zip not available to inspect installer contents"
+          # 2) Search inside installers/archives if present.
+          $installerCandidates = Get-ChildItem -Path $bundleRoot -Recurse -File -Include *.exe,*.msi,*.zip
+          if (-not $installerCandidates -or $installerCandidates.Count -eq 0) {
+            Write-Host "No installer/archive candidates found under $bundleRoot"
+          } else {
+            $preferred = $installerCandidates | Where-Object { $_.Name -match '(?i)(setup|installer|nsis|\.msi$|\.zip$)' }
+            if (-not $preferred -or $preferred.Count -eq 0) {
+              $preferred = $installerCandidates
+            }
+
+            $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue)
+            if (-not $sevenZip) { $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue) }
+            if (-not $sevenZip) {
+              throw "7zip not available to inspect installer contents"
+            }
+
+            foreach ($archive in $preferred) {
+              $files = & $sevenZip.Source l -ba $archive.FullName
+              $match = $files | Select-String -Pattern '(?i)videotool(?!-app)[-_a-z0-9]*\.exe'
+              if ($match) {
+                Write-Host "Found bundled CLI binary inside $($archive.FullName)"
+                exit 0
+              }
+            }
           }
 
-          $files = & $sevenZip.Source l -ba $installer.FullName
-          $match = $files | Select-String -Pattern '(?i)videotool(?!-app)[-_a-z0-9]*\.exe'
-          if (-not $match) {
-            throw "Bundled videotool binary not found inside installer $($installer.Name)"
-          }
+          Write-Host "Bundle root contents:"
+          Get-ChildItem -Path $bundleRoot -Depth 2 | ForEach-Object { Write-Host "  $($_.FullName)" }
+          throw "Bundled videotool binary not found in bundle output under $bundleRoot"
