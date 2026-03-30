@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-03-30
+
+### Changed
+- Slimmed release bundle from 141 to 43 Python packages — removed unused ML deps (torch, whisper, pyannote, scikit-learn) since the Tauri app uses API providers
+- Fixed CI release workflow: use matrix target triple for cross-compilation binary naming
+- Synced all version numbers across Cargo.toml, package.json, tauri.conf.json, pyproject.toml, and __init__.py
+
 ## [0.1.2] - 2026-03-26
 
 ### Added
