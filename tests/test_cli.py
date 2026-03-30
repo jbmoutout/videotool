@@ -1,4 +1,4 @@
-"""Tests for vodtool.cli module."""
+"""Tests for videotool.cli module."""
 
 import json
 from pathlib import Path
@@ -7,7 +7,7 @@ from unittest import mock
 import pytest
 from typer.testing import CliRunner
 
-from vodtool.cli import app, version_callback
+from videotool.cli import app, version_callback
 
 
 runner = CliRunner()
@@ -24,7 +24,7 @@ class TestVersionCallback:
             version_callback(True)
 
         captured = capsys.readouterr()
-        assert "vodtool version" in captured.out
+        assert "videotool version" in captured.out
 
     def test_does_nothing_when_false(self):
         """Does nothing when value is False."""
@@ -39,20 +39,20 @@ class TestMainCallback:
         """--version flag displays version and exits."""
         result = runner.invoke(app, ["--version"])
         assert result.exit_code == 0
-        assert "vodtool version" in result.stdout
+        assert "videotool version" in result.stdout
 
     def test_help_flag_shows_help(self):
         """--help flag displays help text."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "vodtool" in result.stdout
+        assert "videotool" in result.stdout
         assert "transcript-first tool" in result.stdout
 
     def test_ffmpeg_path_option_sets_state(self):
         """--ffmpeg-path option sets app state."""
         # Test requires invoking a command to access app.state
         # We'll use ingest and mock it to check the ffmpeg_path
-        with mock.patch("vodtool.cli.ingest_video") as mock_ingest:
+        with mock.patch("videotool.cli.ingest_video") as mock_ingest:
             mock_ingest.return_value = Path("/tmp/project")
 
             result = runner.invoke(
@@ -112,7 +112,7 @@ class TestIngestCommand:
 
     def test_exits_with_error_when_ingest_fails(self):
         """CLI exits with code 1 when ingest_video returns None."""
-        with mock.patch("vodtool.cli.ingest_video") as mock_ingest:
+        with mock.patch("videotool.cli.ingest_video") as mock_ingest:
             mock_ingest.return_value = None  # Failure
 
             result = runner.invoke(app, ["ingest", "test.mp4"])
@@ -121,7 +121,7 @@ class TestIngestCommand:
 
     def test_succeeds_when_ingest_returns_project_dir(self):
         """CLI exits with code 0 when ingest_video succeeds."""
-        with mock.patch("vodtool.cli.ingest_video") as mock_ingest:
+        with mock.patch("videotool.cli.ingest_video") as mock_ingest:
             mock_ingest.return_value = Path("/tmp/project")
 
             result = runner.invoke(app, ["ingest", "test.mp4"])
@@ -134,7 +134,7 @@ class TestTranscribeCommand:
 
     def test_passes_model_option_to_transcribe_audio(self):
         """--model option is passed to transcribe_audio."""
-        with mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe:
+        with mock.patch("videotool.cli.transcribe_audio") as mock_transcribe:
             result = runner.invoke(
                 app,
                 ["transcribe", "/tmp/project", "--model", "large"],
@@ -146,7 +146,7 @@ class TestTranscribeCommand:
 
     def test_passes_language_option_to_transcribe_audio(self):
         """--language option is passed to transcribe_audio."""
-        with mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe:
+        with mock.patch("videotool.cli.transcribe_audio") as mock_transcribe:
             result = runner.invoke(
                 app,
                 ["transcribe", "/tmp/project", "--language", "fr"],
@@ -159,7 +159,7 @@ class TestTranscribeCommand:
 
     def test_passes_force_option_to_transcribe_audio(self):
         """--force option is passed to transcribe_audio."""
-        with mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe:
+        with mock.patch("videotool.cli.transcribe_audio") as mock_transcribe:
             result = runner.invoke(
                 app,
                 ["transcribe", "/tmp/project", "--force"],
@@ -172,17 +172,17 @@ class TestTranscribeCommand:
 
 
 class TestPipelineJsonProgress:
-    """Tests for vodtool pipeline --json-progress flag."""
+    """Tests for videotool pipeline --json-progress flag."""
 
     def test_json_progress_emits_json_lines(self, tmp_path):
         """--json-progress flag produces parseable JSON lines on stdout."""
         import json
 
-        with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
-             mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe, \
-             mock.patch("vodtool.cli.create_chunks") as mock_chunks, \
-             mock.patch("vodtool.cli.embed_chunks") as mock_embed, \
-             mock.patch("vodtool.cli.llm_topics") as mock_llm:
+        with mock.patch("videotool.cli.ingest_video") as mock_ingest, \
+             mock.patch("videotool.cli.transcribe_audio") as mock_transcribe, \
+             mock.patch("videotool.cli.create_chunks") as mock_chunks, \
+             mock.patch("videotool.cli.embed_chunks") as mock_embed, \
+             mock.patch("videotool.cli.llm_topics") as mock_llm:
             project = tmp_path / "project"
             project.mkdir()
             topic_file = project / "topic_map_llm.json"
@@ -213,8 +213,8 @@ class TestPipelineJsonProgress:
         """When a step fails with --json-progress, stdout contains an error object."""
         import json
 
-        with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
-             mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe:
+        with mock.patch("videotool.cli.ingest_video") as mock_ingest, \
+             mock.patch("videotool.cli.transcribe_audio") as mock_transcribe:
             mock_ingest.return_value = tmp_path / "project"
             mock_transcribe.return_value = None  # step 2 fails
 
@@ -231,11 +231,11 @@ class TestPipelineJsonProgress:
         """Without --json-progress, output uses Rich text format (no JSON)."""
         import json
 
-        with mock.patch("vodtool.cli.ingest_video") as mock_ingest, \
-             mock.patch("vodtool.cli.transcribe_audio") as mock_transcribe, \
-             mock.patch("vodtool.cli.create_chunks") as mock_chunks, \
-             mock.patch("vodtool.cli.embed_chunks") as mock_embed, \
-             mock.patch("vodtool.cli.llm_topics") as mock_llm:
+        with mock.patch("videotool.cli.ingest_video") as mock_ingest, \
+             mock.patch("videotool.cli.transcribe_audio") as mock_transcribe, \
+             mock.patch("videotool.cli.create_chunks") as mock_chunks, \
+             mock.patch("videotool.cli.embed_chunks") as mock_embed, \
+             mock.patch("videotool.cli.llm_topics") as mock_llm:
             project = tmp_path / "project"
             project.mkdir()
             topic_file = project / "topic_map_llm.json"
@@ -279,11 +279,11 @@ class TestPipelineIpc:
         """Each progress line is valid JSON with step/total/pct/msg fields."""
         import json
 
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.create_chunks") as mc, \
-             mock.patch("vodtool.cli.embed_chunks") as me, \
-             mock.patch("vodtool.cli.llm_topics") as ml:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.create_chunks") as mc, \
+             mock.patch("videotool.cli.embed_chunks") as me, \
+             mock.patch("videotool.cli.llm_topics") as ml:
             self._mock_successful_pipeline(tmp_path, mi, mt, mc, me, ml)
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
 
@@ -310,11 +310,11 @@ class TestPipelineIpc:
         """On success, last JSON line is {done:true, project_dir:..., topic_count:N}."""
         import json
 
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.create_chunks") as mc, \
-             mock.patch("vodtool.cli.embed_chunks") as me, \
-             mock.patch("vodtool.cli.llm_topics") as ml:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.create_chunks") as mc, \
+             mock.patch("videotool.cli.embed_chunks") as me, \
+             mock.patch("videotool.cli.llm_topics") as ml:
             self._mock_successful_pipeline(tmp_path, mi, mt, mc, me, ml)
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
 
@@ -332,11 +332,11 @@ class TestPipelineIpc:
         """done.topic_count equals the number of topics in topic_map_llm.json."""
         import json
 
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.create_chunks") as mc, \
-             mock.patch("vodtool.cli.embed_chunks") as me, \
-             mock.patch("vodtool.cli.llm_topics") as ml:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.create_chunks") as mc, \
+             mock.patch("videotool.cli.embed_chunks") as me, \
+             mock.patch("videotool.cli.llm_topics") as ml:
             self._mock_successful_pipeline(tmp_path, mi, mt, mc, me, ml)
             result = runner.invoke(app, ["pipeline", "--json-progress", str(tmp_path / "video.mp4")])
 
@@ -351,8 +351,8 @@ class TestPipelineIpc:
         """When a step fails, stdout contains {error:..., step:N} and exit code is 1."""
         import json
 
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt:
             mi.return_value = tmp_path / "project"
             mt.return_value = None  # step 2 fails
 
@@ -374,7 +374,7 @@ class TestExportCommand:
 
     def test_calls_export_video_with_project_path(self):
         """Export command calls export_video with project path and ffmpeg path."""
-        with mock.patch("vodtool.cli.export_video") as mock_export:
+        with mock.patch("videotool.cli.export_video") as mock_export:
             mock_export.return_value = Path("/tmp/output.mp4")
 
             result = runner.invoke(
@@ -389,7 +389,7 @@ class TestExportCommand:
 
     def test_exits_with_error_when_export_fails(self):
         """CLI exits with code 1 when export_video returns None."""
-        with mock.patch("vodtool.cli.export_video") as mock_export:
+        with mock.patch("videotool.cli.export_video") as mock_export:
             mock_export.return_value = None  # Failure
 
             result = runner.invoke(app, ["export", "/tmp/project"])
@@ -398,7 +398,7 @@ class TestExportCommand:
 
 
 class TestBeatsJsonProgress:
-    """Tests for vodtool beats --json-progress output."""
+    """Tests for videotool beats --json-progress output."""
 
     def _mock_successful_beats(self, tmp_path, mock_ingest, mock_transcribe,
                                 mock_detect):
@@ -429,9 +429,9 @@ class TestBeatsJsonProgress:
 
     def test_no_beats_ready_event(self, tmp_path):
         """beats_ready is no longer emitted — only done."""
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             self._mock_successful_beats(tmp_path, mi, mt, md)
             result = runner.invoke(
                 app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
@@ -444,9 +444,9 @@ class TestBeatsJsonProgress:
 
     def test_done_event_emitted(self, tmp_path):
         """On success, done event with beat_count and topic_count is emitted."""
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             self._mock_successful_beats(tmp_path, mi, mt, md)
             result = runner.invoke(
                 app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
@@ -463,9 +463,9 @@ class TestBeatsJsonProgress:
 
     def test_three_progress_steps(self, tmp_path):
         """Beats pipeline emits 3 step progress events."""
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             self._mock_successful_beats(tmp_path, mi, mt, md)
             result = runner.invoke(
                 app, ["beats", "--json-progress", str(tmp_path / "video.mp4")]
@@ -497,9 +497,9 @@ class TestBeatsJsonProgress:
         project = tmp_path / "project"
         project.mkdir(exist_ok=True)
 
-        with mock.patch("vodtool.cli.ingest_video", side_effect=fake_ingest), \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video", side_effect=fake_ingest), \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             mt.return_value = project / "transcript_raw.json"
             beats_file = project / "beats.json"
             beats_file.write_text('{"beats":[]}')
@@ -518,9 +518,9 @@ class TestBeatsJsonProgress:
 
     def test_error_on_beat_detection_failure(self, tmp_path):
         """When beat detection fails, error event is emitted."""
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             project = tmp_path / "project"
             project.mkdir()
             mi.return_value = project
@@ -543,9 +543,9 @@ class TestProgressContract:
 
     def _run_beats_pipeline(self, tmp_path):
         """Run a mocked beats pipeline and return all JSON lines."""
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             project = tmp_path / "project"
             project.mkdir()
             beats_file = project / "beats.json"
@@ -563,9 +563,9 @@ class TestProgressContract:
 
     def test_all_lines_are_valid_json(self, tmp_path):
         """Every line emitted with --json-progress is parseable JSON."""
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             project = tmp_path / "project"
             project.mkdir()
             beats_file = project / "beats.json"
@@ -611,9 +611,9 @@ class TestProgressContract:
         beats_file = project / "beats.json"
         beats_file.write_text('{"beats":[]}')
 
-        with mock.patch("vodtool.cli.ingest_video", side_effect=fake_ingest), \
-             mock.patch("vodtool.cli.transcribe_audio") as mt, \
-             mock.patch("vodtool.cli.detect_beats") as md:
+        with mock.patch("videotool.cli.ingest_video", side_effect=fake_ingest), \
+             mock.patch("videotool.cli.transcribe_audio") as mt, \
+             mock.patch("videotool.cli.detect_beats") as md:
             mt.return_value = project / "transcript_raw.json"
             md.return_value = beats_file
 
@@ -645,8 +645,8 @@ class TestProgressContract:
 
     def test_error_event_has_required_fields(self, tmp_path):
         """error event has: error (string), step (int)."""
-        with mock.patch("vodtool.cli.ingest_video") as mi, \
-             mock.patch("vodtool.cli.transcribe_audio") as mt:
+        with mock.patch("videotool.cli.ingest_video") as mi, \
+             mock.patch("videotool.cli.transcribe_audio") as mt:
             mi.return_value = tmp_path
             mt.return_value = None  # step 2 fails
 

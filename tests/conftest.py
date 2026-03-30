@@ -1,4 +1,4 @@
-"""Shared test fixtures for VodTool test suite."""
+"""Shared test fixtures for VideoTool test suite."""
 
 import json
 import tempfile
@@ -16,7 +16,7 @@ def temp_dir():
 
 @pytest.fixture
 def mock_project_dir(temp_dir):
-    """Create a mock vodtool project directory with meta.json."""
+    """Create a mock videotool project directory with meta.json."""
     project_dir = temp_dir / "test_project"
     project_dir.mkdir()
 
