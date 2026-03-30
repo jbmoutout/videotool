@@ -27,7 +27,6 @@ a = Analysis(
         "videotool.commands.chunks",
         "videotool.commands.compare_llm",
         "videotool.commands.cutplan",
-        "videotool.commands.diarize",
         "videotool.commands.diarize_review",
         "videotool.commands.embed",
         "videotool.commands.explain_chunk",
@@ -43,6 +42,9 @@ a = Analysis(
         # API clients
         "anthropic",
         "openai",
+        # Twitch downloader (streamlink API + plugin)
+        "streamlink",
+        "streamlink.plugins.twitch",
     ],
     hookspath=[],
     hooksconfig={},

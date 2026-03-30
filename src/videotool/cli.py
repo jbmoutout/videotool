@@ -15,30 +15,6 @@ except ImportError:
 from rich.console import Console
 
 from videotool import __version__
-from videotool.commands.chunks import create_chunks
-from videotool.commands.chunks import get_last_error as get_chunks_error
-from videotool.commands.cutplan import generate_cutplan
-from videotool.commands.diarize import diarize_command
-from videotool.commands.diarize_review import diarize_review_command
-from videotool.commands.embed import embed_chunks
-from videotool.commands.embed import get_last_error as get_embed_error
-from videotool.commands.explain_chunk import explain_chunk_command
-from videotool.commands.export import export_video
-from videotool.commands.ingest import get_last_error as get_ingest_error
-from videotool.commands.ingest import ingest_video
-from videotool.commands.inspect_topic import inspect_topic_command
-from videotool.commands.label_topics import label_topics_command
-from videotool.commands.list_topics import list_topics_command
-from videotool.commands.llm_beats import detect_beats
-from videotool.commands.llm_beats import get_last_error as get_beats_error
-from videotool.commands.llm_topics import get_last_error as get_llm_error
-from videotool.commands.llm_topics import llm_topics
-from videotool.commands.merge_topics import merge_topics_command
-from videotool.commands.segment_topics import segment_topics
-from videotool.commands.show_topics import show_topics_command
-from videotool.commands.topics import cluster_topics
-from videotool.commands.transcribe import get_last_error as get_transcribe_error
-from videotool.commands.transcribe import transcribe_audio
 
 app = typer.Typer(
     name="videotool",
@@ -97,6 +73,7 @@ def ingest(
     Creates a project folder with extracted audio and metadata.
     Accepts a local file path or a Twitch URL (https://twitch.tv/videos/<id>).
     """
+    from videotool.commands.ingest import ingest_video
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
     project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
     if project_dir is None:
@@ -129,6 +106,7 @@ def transcribe(
     Generates timestamped transcript from project audio.
     Default provider is Groq (whisper-large-v3-turbo) — ~10-20x faster than OpenAI.
     """
+    from videotool.commands.transcribe import transcribe_audio
     transcript_path = transcribe_audio(project_path, model, force, language, provider)
     if transcript_path is None:
         raise typer.Exit(code=1)
@@ -143,6 +121,7 @@ def chunks(
 
     Creates 5-25 second chunks for embedding.
     """
+    from videotool.commands.chunks import create_chunks
     chunks_path = create_chunks(project_path)
     if chunks_path is None:
         raise typer.Exit(code=1)
@@ -168,6 +147,7 @@ def embed(
     Uses OpenAI text-embedding-3-small by default (requires OPENAI_API_KEY).
     Use --provider local for offline sentence-transformers.
     """
+    from videotool.commands.embed import embed_chunks
     db_path = embed_chunks(project_path, provider, model)
     if db_path is None:
         raise typer.Exit(code=1)
@@ -183,6 +163,7 @@ def segment_topics_cmd(
 
     Creates contiguous segments where topic changes occur.
     """
+    from videotool.commands.segment_topics import segment_topics
     segments_path = segment_topics(project_path, max_topics)
     if segments_path is None:
         raise typer.Exit(code=1)
@@ -198,6 +179,7 @@ def topics(
 
     Groups similar segments across the entire stream.
     """
+    from videotool.commands.topics import cluster_topics
     topic_map_path = cluster_topics(project_path, max_topics)
     if topic_map_path is None:
         raise typer.Exit(code=1)
@@ -213,6 +195,7 @@ def label_topics(
 
     Uses TF-IDF keyword extraction to create topic labels.
     """
+    from videotool.commands.label_topics import label_topics_command
     labeled_path = label_topics_command(project_path, force)
     if labeled_path is None:
         raise typer.Exit(code=1)
@@ -239,6 +222,7 @@ def cutplan(
       - labeled: Use topic_map_labeled.json (from label-topics command)
       - basic: Use topic_map.json (from topics command)
     """
+    from videotool.commands.cutplan import generate_cutplan
     cutplan_path = generate_cutplan(project_path, topic, source)
     if cutplan_path is None:
         raise typer.Exit(code=1)
@@ -254,6 +238,7 @@ def diarize(
 
     Identifies speakers and maps top N speakers to MAIN_1, MAIN_2, etc.
     """
+    from videotool.commands.diarize import diarize_command
     diarize_command(project_path, num_main)
 
 
@@ -266,6 +251,7 @@ def diarize_review(
 
     Displays speaker statistics and allows marking speakers as BACKGROUND.
     """
+    from videotool.commands.diarize_review import diarize_review_command
     diarize_review_command(project_path)
 
 
@@ -278,6 +264,7 @@ def export(
 
     Generates final topic-focused video with preview.
     """
+    from videotool.commands.export import export_video
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
     export_path = export_video(project_path, ffmpeg_path)
     if export_path is None:
@@ -300,6 +287,10 @@ def _run_ingest_and_transcribe(
     """
     import json as _json
     import sys
+    from videotool.commands.ingest import get_last_error as get_ingest_error
+    from videotool.commands.ingest import ingest_video
+    from videotool.commands.transcribe import get_last_error as get_transcribe_error
+    from videotool.commands.transcribe import transcribe_audio
 
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
 
@@ -425,6 +416,8 @@ def beats(
     """
     import json as _json
     import sys
+    from videotool.commands.llm_beats import detect_beats
+    from videotool.commands.llm_beats import get_last_error as get_beats_error
 
     total = 3
 
@@ -517,6 +510,12 @@ def pipeline(
     """
     import json as _json
     import sys
+    from videotool.commands.chunks import create_chunks
+    from videotool.commands.chunks import get_last_error as get_chunks_error
+    from videotool.commands.embed import embed_chunks
+    from videotool.commands.embed import get_last_error as get_embed_error
+    from videotool.commands.llm_topics import get_last_error as get_llm_error
+    from videotool.commands.llm_topics import llm_topics
 
     total = 5
 
@@ -576,6 +575,7 @@ def llm_beats_cmd(
     Runs only the LLM beat detection step (no ingest, no transcribe).
     Requires transcript_raw.json in the project directory.
     """
+    from videotool.commands.llm_beats import detect_beats
     result = detect_beats(project_path)
     if result is None:
         raise typer.Exit(code=1)
@@ -591,6 +591,7 @@ def inspect_topic(
 
     Shows duration, spans, and representative chunks for analysis.
     """
+    from videotool.commands.inspect_topic import inspect_topic_command
     inspect_topic_command(project_path, topic_id)
 
 
@@ -608,6 +609,7 @@ def show_topics(
 
     Shows when topics appear and reappear (returns) throughout the video.
     """
+    from videotool.commands.show_topics import show_topics_command
     result = show_topics_command(project_path, include_misc)
     if result is None:
         raise typer.Exit(code=1)
@@ -623,6 +625,7 @@ def explain_chunk(
 
     Shows chunk text, assigned topic, and top-3 nearest neighbors by similarity.
     """
+    from videotool.commands.explain_chunk import explain_chunk_command
     result = explain_chunk_command(project_path, chunk_id)
     if result is None:
         raise typer.Exit(code=1)
@@ -659,6 +662,7 @@ def llm_topics_cmd(
 
     Analyzes chunks directly with LLM and returns structured topic list.
     """
+    from videotool.commands.llm_topics import llm_topics
     result = llm_topics(project_path, max_topics, provider, model)
     if result is None:
         raise typer.Exit(code=1)
@@ -712,6 +716,7 @@ def merge_topics(
     Combines topic_b into topic_a (keeps topic_a's label), then renumbers all topics.
     Edits the topic map file in place.
     """
+    from videotool.commands.merge_topics import merge_topics_command
     result = merge_topics_command(project_path, topic_a, topic_b, source)
     if result is None:
         raise typer.Exit(code=1)
@@ -732,6 +737,7 @@ def list_topics(
 
     Clean overview of detected topics. Auto-prefers LLM topics if available.
     """
+    from videotool.commands.list_topics import list_topics_command
     result = list_topics_command(project_path, source)
     if result is None:
         raise typer.Exit(code=1)

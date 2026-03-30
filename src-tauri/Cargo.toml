@@ -1,6 +1,6 @@
 [package]
 name = "videotool-app"
-version = "0.1.4"
+version = "0.1.5"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -27,4 +27,3 @@ tokio = { version = "1", features = ["process", "io-util", "rt", "rt-multi-threa
 axum = "0.7"
 tokio-util = { version = "0.7", features = ["io"] }
 tower-http = { version = "0.6", features = ["cors"] }
-
