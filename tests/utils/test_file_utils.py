@@ -1,4 +1,4 @@
-"""Tests for vodtool.utils.file_utils module."""
+"""Tests for videotool.utils.file_utils module."""
 
 import fcntl
 import json
@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from vodtool.utils.file_utils import (
+from videotool.utils.file_utils import (
     project_lock,
     safe_read_json,
     safe_write_json,
@@ -103,7 +103,7 @@ class TestProjectLock:
 
     def test_acquires_and_releases_lock(self, mock_project_dir):
         """Successfully acquires and releases lock."""
-        lock_file = mock_project_dir / ".vodtool.lock"
+        lock_file = mock_project_dir / ".videotool.lock"
 
         with project_lock(mock_project_dir):
             # Lock file should exist while locked
@@ -118,7 +118,7 @@ class TestProjectLock:
 
         # First lock acquisition succeeds
         with project_lock(mock_project_dir):
-            lock_file = mock_project_dir / ".vodtool.lock"
+            lock_file = mock_project_dir / ".videotool.lock"
             assert lock_file.exists()
 
             # Try to acquire lock again in same process (should fail immediately)
@@ -129,7 +129,7 @@ class TestProjectLock:
     def test_timeout_raises_error(self, mock_project_dir):
         """Raises BlockingIOError when lock cannot be acquired within timeout."""
         # Create a lock file manually to simulate an external lock
-        lock_file = mock_project_dir / ".vodtool.lock"
+        lock_file = mock_project_dir / ".videotool.lock"
 
         # Hold the lock in the outer context
         with lock_file.open("w") as lock_fd:
@@ -143,7 +143,7 @@ class TestProjectLock:
 
     def test_lock_released_on_exception(self, mock_project_dir):
         """Lock is released even if exception occurs within context."""
-        lock_file = mock_project_dir / ".vodtool.lock"
+        lock_file = mock_project_dir / ".videotool.lock"
 
         with pytest.raises(ValueError):
             with project_lock(mock_project_dir):

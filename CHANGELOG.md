@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Refactored all commands to use centralized validation, file locking, and safe JSON operations
-- Projects now stored in `~/.vodtool/projects` instead of `./projects`
+- Projects now stored in `~/.videotool/projects` instead of `./projects`
 - Error messages now include helpful suggestions for missing pipeline dependencies
 - Improved error handling with specific exception types instead of broad `Exception` catches
 
@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-03-25
 
 ### Added
-- Initial release of VodTool CLI
+- Initial release of VideoTool CLI
 - Whisper-based transcription with automatic language detection
 - Speaker diarization support for multi-person streams
 - Semantic topic detection using embeddings

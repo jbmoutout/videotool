@@ -3,14 +3,14 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "vodtool"
+name = "videotool"
 version = "0.1.2"
 description = "A local, transcript-first CLI tool for extracting topic-focused videos from long multi-topic streams"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
-    {name = "VodTool Contributors"}
+    {name = "VideoTool Contributors"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -45,7 +45,7 @@ dev = [
 ]
 
 [project.scripts]
-vodtool = "vodtool.cli:app"
+videotool = "videotool.cli:app"
 
 [tool.setuptools.package-dir]
 "" = "src"

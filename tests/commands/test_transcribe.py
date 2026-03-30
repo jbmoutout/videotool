@@ -1,4 +1,4 @@
-"""Tests for vodtool.commands.transcribe module."""
+"""Tests for videotool.commands.transcribe module."""
 
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ from unittest import mock
 
 import pytest
 
-from vodtool.commands.transcribe import (
+from videotool.commands.transcribe import (
     get_last_error,
     transcribe_audio,
 )
@@ -63,9 +63,9 @@ class TestTranscribeAudio:
             "language": "en",
         }
 
-        with mock.patch("vodtool.commands.transcribe.safe_write_json", return_value=False):
+        with mock.patch("videotool.commands.transcribe.safe_write_json", return_value=False):
             with mock.patch(
-                "vodtool.transcription.GroqTranscriptionProvider",
+                "videotool.transcription.GroqTranscriptionProvider",
                 return_value=mock_provider,
             ):
                 result = transcribe_audio(tmp_path, force=True, provider="groq")
