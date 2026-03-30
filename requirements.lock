@@ -130,7 +130,7 @@ tqdm==4.67.3
 transformers==4.57.6
 trio==0.31.0
 trio-websocket==0.12.2
-typer==0.23.2
+typer==0.15.4
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2025.3
