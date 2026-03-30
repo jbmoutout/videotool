@@ -24,7 +24,7 @@ from videotool.commands.llm_beats import (
     LLM_MODEL,
 )
 
-BASE = Path("~/.videotool/projects")
+BASE = Path.home() / ".videotool" / "projects"
 
 
 def test_project(project_id: str):
