@@ -38,9 +38,14 @@ def get_anthropic_client():
 
     if proxy_url:
         logger.info("Using proxy for Anthropic API")
+        headers = {}
+        auth_token = os.getenv("PROXY_AUTH_TOKEN")
+        if auth_token:
+            headers["X-Proxy-Token"] = auth_token
         return Anthropic(
             api_key="proxy",
             base_url=f"{proxy_url.rstrip('/')}/anthropic",
+            default_headers=headers,
         )
 
     raise ValueError(
