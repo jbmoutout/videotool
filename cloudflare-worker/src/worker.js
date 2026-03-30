@@ -27,36 +27,7 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Authenticate proxy requests with a shared token (stored as CF secret).
-    // Health check is excluded so monitoring works without credentials.
-    if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
-      if (env.PROXY_AUTH_TOKEN) {
-        const token = request.headers.get("X-Proxy-Token");
-        if (token !== env.PROXY_AUTH_TOKEN) {
-          return jsonResponse({ error: "Unauthorized" }, 401);
-        }
-      }
-    }
-
-    // Simple IP-based rate limiting via KV (if bound) — otherwise skip
-    if (env.RATE_LIMITS) {
-      const ip = request.headers.get("cf-connecting-ip") || "unknown";
-      const today = new Date().toISOString().slice(0, 10);
-      const key = `ratelimit:${ip}:${today}`;
-      const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
-      const limit = parseInt(env.RATE_LIMIT_PER_DAY || "10", 10);
-
-      if (count >= limit) {
-        return jsonResponse({ error: "Daily limit reached. Try again tomorrow." }, 429);
-      }
-
-      // Count both Groq (transcription) and Anthropic (beat detection) requests
-      if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
-        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 86400 });
-      }
-    }
-
-    // ── Event tracking ────────────────────────────────────────────
+    // ── Event tracking (before rate limiter) ───────────────────────
     if (path === "/track") {
       if (!env.RATE_LIMITS) {
         return jsonResponse({ error: "KV not configured" }, 500);
@@ -92,6 +63,33 @@ export default {
         }
       }
       return jsonResponse(stats);
+    }
+
+    // Authenticate proxy requests with a shared token (stored as CF secret).
+    if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
+      if (env.PROXY_AUTH_TOKEN) {
+        const token = request.headers.get("X-Proxy-Token");
+        if (token !== env.PROXY_AUTH_TOKEN) {
+          return jsonResponse({ error: "Unauthorized" }, 401);
+        }
+      }
+    }
+
+    // Simple IP-based rate limiting via KV (if bound) — otherwise skip
+    if (env.RATE_LIMITS) {
+      const ip = request.headers.get("cf-connecting-ip") || "unknown";
+      const today = new Date().toISOString().slice(0, 10);
+      const key = `ratelimit:${ip}:${today}`;
+      const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
+      const limit = parseInt(env.RATE_LIMIT_PER_DAY || "10", 10);
+
+      if (count >= limit) {
+        return jsonResponse({ error: "Daily limit reached. Try again tomorrow." }, 429);
+      }
+
+      if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
+        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 86400 });
+      }
     }
 
     // ── Groq proxy ─────────────────────────────────────────────────
