@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-03-30
+
+### Fixed
+- Fix proxy URL not forwarded to Python CLI in release builds (filter empty strings)
+- Add diagnostic logging for proxy config to aid debugging
+- Harden Windows CI: retry Chocolatey installs (3 attempts, 10s backoff), drop unused yt-dlp
+
 ## [0.1.6] - 2026-03-30
 
 ### Fixed
