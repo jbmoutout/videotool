@@ -46,7 +46,7 @@ Generated from /plan-eng-review on 2026-03-26
 
 **What:** Add local LLM option (Ollama) alongside Anthropic API. Users can choose between free/private/slower (Ollama) or fast/paid (Anthropic).
 
-**Why:** MVP ships with Anthropic-only to simplify distribution and speed up beta validation. But the original vision was "local-first for privacy + cost" — free tier may be critical for price-sensitive users like a DIY streamer beta tester (DIY streamer without editor budget).
+**Why:** MVP ships with Anthropic-only to simplify distribution and speed up beta validation. But the original vision was "local-first for privacy + cost" — free tier may be critical for price-sensitive users (e.g. a DIY streamer without editor budget).
 
 **Pros:**
 - Enables free tier (0 cost per VOD vs ~$0.50 with Anthropic)
@@ -112,7 +112,7 @@ Generated from /plan-eng-review on 2026-03-26
 
 **What:** Allow users to add multiple VOD files to a processing queue. Process them sequentially (or parallel if resources allow). Show queue UI with status for each file.
 
-**Why:** MVP is single-file only (V1 scope limit). But professional editors like a professional editor beta tester process multiple streams per day. Batch processing is a productivity multiplier.
+**Why:** MVP is single-file only (V1 scope limit). But professional editors process multiple streams per day. Batch processing is a productivity multiplier.
 
 **Pros:**
 - Productivity win for B2B use case (editors processing 5-10 streams/day)
@@ -127,7 +127,7 @@ Generated from /plan-eng-review on 2026-03-26
 **Context:**
 - Design doc V1 scope limit: "Single-file processing only (no batch queue)"
 - Rationale: MVP validates demand with one file at a time. Batch is a productivity feature for post-validation.
-- If a professional editor beta tester (professional editor) gives feedback: "I need to process 10 VODs per day, clicking 10 times is painful" → prioritize this TODO
+- If a professional editor beta tester gives feedback: "I need to process 10 VODs per day, clicking 10 times is painful" → prioritize this TODO
 - Implementation: queue state management + sequential subprocess spawning + UI for queue list
 
 **Depends on:** MVP validated, B2B use case confirmed (editors, not DIY streamers)
@@ -212,7 +212,7 @@ Generated from /plan-eng-review on 2026-03-26
 
 **What:** Create `.github/workflows/release.yml` using `tauri-apps/tauri-action` to build and publish the Tauri desktop app as a Mac DMG (and eventually Windows installer) on every version tag push.
 
-**Why:** Code without distribution is code nobody can use. The Tauri app has no value if users can't install it. A manual build process is not acceptable for beta — we need automated artifact generation so a professional editor beta tester and a DIY streamer beta tester can download and install without compiling from source.
+**Why:** Code without distribution is code nobody can use. The Tauri app has no value if users can't install it. A manual build process is not acceptable for beta — we need automated artifact generation so beta testers can download and install without compiling from source.
 
 **Required:**
 - Trigger: `push` to tags matching `v*` (e.g., `v0.1.0`)
@@ -246,7 +246,7 @@ Generated from /plan-eng-review on 2026-03-26
 
 **What:** Add `--content-type react|talk|gaming` flag to `videotool pipeline` and `videotool llm-topics`. In `react` mode, the LLM topic extraction prompt is specialized for react stream structure — producing topic labels like `"Réaction: clip Gotaga"`, `"Tangente chat"`, `"Intro/Outro"` instead of generic subject labels.
 
-**Why:** a DIY streamer beta tester and a professional editor beta tester work exclusively with react streams — a streamer reacts to YouTube videos live. The transcript is a mixed-down signal (streamer mic + YouTube desktop audio) with no clean source separation possible (OBS multi-track not used). However, topic boundaries in react streams are linguistically identifiable (`"okay on regarde..."`, `"attends attends"`). The LLM just needs a prompt that understands react content structure.
+**Why:** Our beta testers work exclusively with react streams — a streamer reacts to YouTube videos live. The transcript is a mixed-down signal (streamer mic + YouTube desktop audio) with no clean source separation possible (OBS multi-track not used). However, topic boundaries in react streams are linguistically identifiable (`"okay on regarde..."`, `"attends attends"`). The LLM just needs a prompt that understands react content structure.
 
 **What was ruled out for v0:**
 - Video frame sampling to detect YouTube player → streamer speaks WITH the react layout visible simultaneously, so frames give no separation signal
@@ -266,7 +266,7 @@ When implementing: `AssemblyAITranscriptionProvider` slots into the existing `Tr
 - React mode prompt uses speaker labels when present, falls back to linguistic detection when absent
 - No pipeline changes between v0 and v1 — just provider swap + prompt specialization
 
-**Depends on:** MVP validated with a DIY streamer beta tester — confirm react content is the primary use case
+**Depends on:** MVP validated with beta testers — confirm react content is the primary use case
 
 **Effort:** human ~2 hours / CC+gstack ~15 min
 
@@ -321,7 +321,7 @@ app.on_window_event(|event| {
 - Signing infrastructure for update artifacts
 
 **Pros:**
-- Zero-friction updates for a professional editor beta tester and a DIY streamer beta tester
+- Zero-friction updates for beta testers
 - Enables fast iteration during beta
 - Required before public release
 
@@ -345,7 +345,7 @@ app.on_window_event(|event| {
 
 **What:** Enable GitHub Pages on the videotool repo, serving `landing/index.html` as the public site. Update download links to point to actual GitHub Release assets once TODO #7 produces them.
 
-**Why:** The landing page exists (`landing/index.html`) but isn't deployed. Beta testers (a professional editor beta tester, a DIY streamer beta tester) need a URL to visit, not a git clone. GitHub Pages is free, zero-config for static HTML, and already where the repo lives.
+**Why:** The landing page exists (`landing/index.html`) but isn't deployed. Beta testers need a URL to visit, not a git clone. GitHub Pages is free, zero-config for static HTML, and already where the repo lives.
 
 **Steps:**
 1. Enable GitHub Pages in repo Settings → Pages → Source: "Deploy from a branch", branch `main`, folder `/landing`
