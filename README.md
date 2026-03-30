@@ -1,12 +1,3 @@
- █████   █████    ███████    ██████████      ███████████    ███████       ███████    █████
-░░███   ░░███   ███░░░░░███ ░░███░░░░███    ░█░░░███░░░█  ███░░░░░███   ███░░░░░███ ░░███
- ░███    ░███  ███     ░░███ ░███   ░░███   ░   ░███  ░  ███     ░░███ ███     ░░███ ░███
- ░███    ░███ ░███      ░███ ░███    ░███       ░███    ░███      ░███░███      ░███ ░███
- ░░███   ███  ░███      ░███ ░███    ░███       ░███    ░███      ░███░███      ░███ ░███
-  ░░░█████░   ░░███     ███  ░███    ███        ░███    ░░███     ███ ░░███     ███  ░███      █
-    ░░███      ░░░███████░   ██████████         █████    ░░░███████░   ░░░███████░   ███████████
-     ░░░         ░░░░░░░    ░░░░░░░░░░         ░░░░░       ░░░░░░░       ░░░░░░░    ░░░░░░░░░░░
-
 
 # VideoTool
 
@@ -87,38 +78,43 @@ The `beats.json` schema:
 
 ```json
 {
+  "topic_id": "coupe_cheveux",
+  "topic_label": "Les 4 phases d'une coupe",
   "beats": [
     {
-      "topic_id": "topic_0001",
-      "topic_label": "Rogue noir dans HP",
-      "beats": [
-        {
-          "type": "highlight",
-          "start_s": 912,
-          "end_s": 945,
-          "confidence": 0.91,
-          "label": "Hot take: casting Rogue noir"
-        },
-        {
-          "type": "core",
-          "start_s": 945,
-          "end_s": 1650,
-          "confidence": 0.85,
-          "label": "Main argument: racisme et adaptation"
-        }
-      ]
+      "type": "context",
+      "start_s": 1068.5,
+      "end_s": 1185.2,
+      "confidence": 0.75,
+      "label": "Ça fait trois semaines, là c'est le pire stade de la repousse"
+    },
+    {
+      "type": "core",
+      "start_s": 1406.8,
+      "end_s": 1767.3,
+      "confidence": 0.90,
+      "label": "Théorie des 4 phases d'une coupe de cheveux"
+    },
+    {
+      "type": "transition",
+      "start_s": 2066.4,
+      "end_s": 2869.8,
+      "confidence": 0.78,
+      "label": "Débat sur les coupes longues, buzz cut et couvre-chefs de darons"
     }
   ]
 }
 ```
 
 **Beat types:**
-- **hook** — the most attention-grabbing moment (where a YouTube video should start)
-- **build** — context and setup that gives the hook meaning
-- **peak** — the highest-value segment, the meat of the topic
-- **resolution** — wind-down, conclusions, transition to next topic
+- **highlight** — the most attention-grabbing moment (where a YouTube video should start)
+- **core** — the meat of the topic, the highest-value segment
+- **context** — setup and background that gives the core meaning
+- **chat** — chat interaction, audience engagement
+- **transition** — wind-down, pivot to the next topic
+- **break** — off-topic pause, BRB, dead air
 
-Not every topic has all 4 types. A short tangent might only have a hook and peak.
+Not every topic has all 6 types. A short tangent might only have a highlight and core.
 
 ## API Proxy (for zero-friction distribution)
 
