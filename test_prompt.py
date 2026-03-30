@@ -13,8 +13,8 @@ import sys
 import time
 from pathlib import Path
 
-from vodtool.llm import get_anthropic_client
-from vodtool.commands.llm_beats import (
+from videotool.llm import get_anthropic_client
+from videotool.commands.llm_beats import (
     _build_beat_prompt,
     _compute_gaps,
     _format_transcript,
@@ -24,7 +24,7 @@ from vodtool.commands.llm_beats import (
     LLM_MODEL,
 )
 
-BASE = Path("~/.vodtool/projects")
+BASE = Path("~/.videotool/projects")
 
 
 def test_project(project_id: str):

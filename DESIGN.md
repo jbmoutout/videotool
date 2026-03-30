@@ -1,4 +1,4 @@
-# Design System — VodTool
+# Design System — VideoTool
 
 ## Product Context
 - **What this is:** Desktop app that maps beats (highlight, core, context, chat, transition, break) on stream VOD timelines
@@ -71,7 +71,7 @@
 
 ## Landing Page
 
-Single-page site for VodTool. The vibe is htmx.org meets curl.se — earns trust through directness, not polish.
+Single-page site for VideoTool. The vibe is htmx.org meets curl.se — earns trust through directness, not polish.
 
 ### Layout
 - Single column, left-aligned, max-width 720px
@@ -128,7 +128,7 @@ Working implementation: `landing/index.html`
 |------|----------|-----------|
 | 2026-03-29 | Initial design system created | Created by /design-consultation based on competitive research (Eklipse, StreamLadder, Streamlabs) and outside voices (Codex + Claude subagent) |
 | 2026-03-29 | Chose #6B8AFF soft blue over #39FF14 green | Green was too flashy — doesn't fit "sits next to OBS and Discord." Blue is familiar to gamers (Discord, VS Code) without being generic |
-| 2026-03-29 | Single monospace family (JetBrains Mono) | Pure monospace signals "serious tool." No sans-serif layer needed — VodTool has no long prose |
+| 2026-03-29 | Single monospace family (JetBrains Mono) | Pure monospace signals "serious tool." No sans-serif layer needed — VideoTool has no long prose |
 | 2026-03-29 | Beat timeline-as-waveform noted as direction to explore | Signal lane concept (vertical beat markers on horizontal timeline) is promising but needs its own UX exploration — not a design system specification |
 | 2026-03-29 | Landing page: text-first single page, ASCII hero, download CTA | htmx.org/curl.se energy — earns trust through directness. Download links (macOS + Windows) as primary CTA, not CLI install. |
 | 2026-03-29 | Builder energy tagline over marketing copy | Beta validation page, not product marketing. "I'm building a tool..." invites feedback. Hosted on GitHub Pages. |

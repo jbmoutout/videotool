@@ -1,11 +1,11 @@
-"""Tests for vodtool.transcription module."""
+"""Tests for videotool.transcription module."""
 
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-from vodtool.transcription import (
+from videotool.transcription import (
     OpenAITranscriptionProvider,
     _deduplicate_boundary_segments,
     _probe_duration,
@@ -78,8 +78,8 @@ class TestOpenAITranscriptionProvider:
         ]
 
         with mock.patch("openai.OpenAI"), \
-             mock.patch("vodtool.transcription._probe_duration", return_value=1200.0), \
-             mock.patch("vodtool.transcription._extract_chunk"), \
+             mock.patch("videotool.transcription._probe_duration", return_value=1200.0), \
+             mock.patch("videotool.transcription._extract_chunk"), \
              mock.patch.object(OpenAITranscriptionProvider, "_transcribe_file", side_effect=chunk_results) as mock_tf:
             provider = OpenAITranscriptionProvider()
             result = provider.transcribe(audio)
@@ -100,8 +100,8 @@ class TestOpenAITranscriptionProvider:
         ]
 
         with mock.patch("openai.OpenAI"), \
-             mock.patch("vodtool.transcription._probe_duration", return_value=1200.0), \
-             mock.patch("vodtool.transcription._extract_chunk"), \
+             mock.patch("videotool.transcription._probe_duration", return_value=1200.0), \
+             mock.patch("videotool.transcription._extract_chunk"), \
              mock.patch.object(OpenAITranscriptionProvider, "_transcribe_file", side_effect=chunk_results):
             provider = OpenAITranscriptionProvider()
             result = provider.transcribe(audio)
@@ -124,8 +124,8 @@ class TestOpenAITranscriptionProvider:
         ]
 
         with mock.patch("openai.OpenAI"), \
-             mock.patch("vodtool.transcription._probe_duration", return_value=1200.0), \
-             mock.patch("vodtool.transcription._extract_chunk"), \
+             mock.patch("videotool.transcription._probe_duration", return_value=1200.0), \
+             mock.patch("videotool.transcription._extract_chunk"), \
              mock.patch.object(OpenAITranscriptionProvider, "_transcribe_file", side_effect=chunk_results):
             provider = OpenAITranscriptionProvider()
             with pytest.raises(RuntimeError, match="chunk 2 of"):

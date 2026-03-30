@@ -8,13 +8,13 @@
      ░░░         ░░░░░░░    ░░░░░░░░░░         ░░░░░       ░░░░░░░       ░░░░░░░    ░░░░░░░░░░░
 
 
-# VodTool
+# VideoTool
 
 Guided VOD editing — AI maps every second of your stream into topics and beats (highlight, core, context, chat, transition, break) so you see the terrain before you cut.
 
 ## How It Works
 
-VodTool runs a 3-step pipeline on any stream VOD:
+VideoTool runs a 3-step pipeline on any stream VOD:
 
 ```
 ingest → transcribe → detect narrative beats
@@ -41,17 +41,17 @@ cd src-tauri && cargo tauri dev
 
 ```bash
 # Full beat detection pipeline — one command
-vodtool beats path/to/video.mp4
-vodtool beats https://twitch.tv/videos/<id>
+videotool beats path/to/video.mp4
+videotool beats https://twitch.tv/videos/<id>
 
 # With language hint
-vodtool beats path/to/video.mp4 --language fr
+videotool beats path/to/video.mp4 --language fr
 
 # Re-run beat detection only (skip ingest + transcribe)
-vodtool llm-beats projects/<id>
+videotool llm-beats projects/<id>
 
 # JSON progress output (for Tauri IPC)
-vodtool beats path/to/video.mp4 --json-progress
+videotool beats path/to/video.mp4 --json-progress
 ```
 
 ### Standalone Beat Viewer (HTML)
@@ -73,8 +73,8 @@ For paywalled VODs or local OBS recordings — no install required:
 ## Installation
 
 ```bash
-git clone https://github.com/jbmoutout/vodtool
-cd vodtool
+git clone https://github.com/jbmoutout/videotool
+cd videotool
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
@@ -146,17 +146,17 @@ The original topic detection pipeline is still available for power users:
 
 ```bash
 # 5-step pipeline: ingest → transcribe → chunks → embed → llm-topics
-vodtool pipeline path/to/video.mp4
+videotool pipeline path/to/video.mp4
 
 # Individual steps
-vodtool transcribe projects/<id>
-vodtool chunks projects/<id>
-vodtool embed projects/<id>
-vodtool llm-topics projects/<id>
-vodtool list-topics projects/<id>
-vodtool show-topics projects/<id>
-vodtool cutplan projects/<id> --topic topic_0001
-vodtool export projects/<id>
+videotool transcribe projects/<id>
+videotool chunks projects/<id>
+videotool embed projects/<id>
+videotool llm-topics projects/<id>
+videotool list-topics projects/<id>
+videotool show-topics projects/<id>
+videotool cutplan projects/<id> --topic topic_0001
+videotool export projects/<id>
 ```
 
 ## Cost
