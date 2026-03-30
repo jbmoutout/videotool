@@ -78,6 +78,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VITE_API_PROXY_URL: ${{ secrets.VITE_API_PROXY_URL }}
+          PROXY_AUTH_TOKEN: ${{ secrets.PROXY_AUTH_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "videotool ${{ github.ref_name }}"
