@@ -1,5 +1,5 @@
 /**
- * VodTool API Proxy — Cloudflare Worker
+ * VideoTool API Proxy — Cloudflare Worker
  *
  * Header-injection reverse proxy for Groq (transcription) and Anthropic (beats).
  * Adds API keys from secrets and forwards requests. Streams request/response bodies
@@ -9,7 +9,7 @@
  * Secrets: wrangler secret put GROQ_API_KEY && wrangler secret put ANTHROPIC_API_KEY
  */
 
-// NOTE: CORS is permissive by design — this is a public API proxy for VodTool
+// NOTE: CORS is permissive by design — this is a public API proxy for VideoTool
 // desktop/web clients. Rate limiting (RATE_LIMIT_PER_DAY) is the primary abuse control.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -92,7 +92,7 @@ export default {
 
     // ── Health check ───────────────────────────────────────────────
     if (path === "/" || path === "/health") {
-      return jsonResponse({ status: "ok", service: "vodtool-api" });
+      return jsonResponse({ status: "ok", service: "vodtool-api" }); // matches deployed CF worker name
     }
 
     return jsonResponse({ error: "Not found" }, 404);

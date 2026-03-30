@@ -1,4 +1,4 @@
-# VodTool TODOs
+# VideoTool TODOs
 
 Generated from /plan-eng-review on 2026-03-26
 
@@ -26,7 +26,7 @@ Generated from /plan-eng-review on 2026-03-26
 - During hardening:
   - Add error handling for common failure modes (file not found, invalid format, disk space, interrupted processing)
   - Extract common logic (error handling, file validation, path resolution) into shared utilities
-  - Ensure `vodtool pipeline` composes individual steps cleanly (no copy-paste)
+  - Ensure `videotool pipeline` composes individual steps cleanly (no copy-paste)
   - Add **17 critical tests** (15 baseline + 2 promoted from TODO #5):
     - **PROMOTED #1:** Non-UTF8 stdout handling — Rust parser must handle gracefully when Python outputs binary data, not crash (prevents silent progress freeze)
     - **PROMOTED #2:** JSON parse error handling — Tauri must show error when Python outputs malformed JSON, not render blank Results screen (prevents user confusion at final step)
@@ -198,11 +198,11 @@ Generated from /plan-eng-review on 2026-03-26
 
 **Context:**
 - Identified during /plan-eng-review Architecture Review (Issue #4)
-- `TranscriptionProvider` abstraction (`src/vodtool/transcribe.py`) is prerequisite — provider returns per-chunk results, stitcher merges them
+- `TranscriptionProvider` abstraction (`src/videotool/transcribe.py`) is prerequisite — provider returns per-chunk results, stitcher merges them
 - Tests required: `tests/test_transcribe.py` (7 tests covering: ≤25MB direct call, >25MB chunking, timestamp offset correctness, boundary deduplication, chunk failure error, missing API key, file not found)
 - The CRITICAL test: chunk 2 starts at 600s → its timestamps must be offset by 600s in stitched output
 
-**Depends on:** `TranscriptionProvider` abstraction implemented in `src/vodtool/transcribe.py`
+**Depends on:** `TranscriptionProvider` abstraction implemented in `src/videotool/transcribe.py`
 
 **Effort:** human ~1 day / CC+gstack ~30 min
 
@@ -244,7 +244,7 @@ Generated from /plan-eng-review on 2026-03-26
 
 ## 8. React Stream Content Mode (`--content-type react`) (P1)
 
-**What:** Add `--content-type react|talk|gaming` flag to `vodtool pipeline` and `vodtool llm-topics`. In `react` mode, the LLM topic extraction prompt is specialized for react stream structure — producing topic labels like `"Réaction: clip Gotaga"`, `"Tangente chat"`, `"Intro/Outro"` instead of generic subject labels.
+**What:** Add `--content-type react|talk|gaming` flag to `videotool pipeline` and `videotool llm-topics`. In `react` mode, the LLM topic extraction prompt is specialized for react stream structure — producing topic labels like `"Réaction: clip Gotaga"`, `"Tangente chat"`, `"Intro/Outro"` instead of generic subject labels.
 
 **Why:** @ouaiseddy and @lethar work exclusively with react streams — a streamer reacts to YouTube videos live. The transcript is a mixed-down signal (streamer mic + YouTube desktop audio) with no clean source separation possible (OBS multi-track not used). However, topic boundaries in react streams are linguistically identifiable (`"okay on regarde..."`, `"attends attends"`). The LLM just needs a prompt that understands react content structure.
 
@@ -274,9 +274,9 @@ When implementing: `AssemblyAITranscriptionProvider` slots into the existing `Tr
 
 ## ~~9. Subprocess Orphan Prevention on App Close (P1)~~ ✅ DONE (2026-03-29)
 
-**What:** Hook `WindowEvent::CloseRequested` in the Tauri app to send SIGTERM to the running Python subprocess before the window closes. Without this, closing the app mid-processing leaves a zombie vodtool process running in the background.
+**What:** Hook `WindowEvent::CloseRequested` in the Tauri app to send SIGTERM to the running Python subprocess before the window closes. Without this, closing the app mid-processing leaves a zombie videotool process running in the background.
 
-**Why:** Users who close the app during processing (cancel intent) will have a `vodtool pipeline` process still consuming CPU/RAM. On M1/M2 Macs, this can be significant. On second app launch they may hit file conflicts (same project dir being processed).
+**Why:** Users who close the app during processing (cancel intent) will have a `videotool pipeline` process still consuming CPU/RAM. On M1/M2 Macs, this can be significant. On second app launch they may hit file conflicts (same project dir being processed).
 
 **Fix:** ~10 lines of Rust in `src-tauri/src/main.rs`:
 ```rust
@@ -343,14 +343,14 @@ app.on_window_event(|event| {
 
 ## 11. Deploy Landing Page on GitHub Pages (P0)
 
-**What:** Enable GitHub Pages on the vodtool repo, serving `landing/index.html` as the public site. Update download links to point to actual GitHub Release assets once TODO #7 produces them.
+**What:** Enable GitHub Pages on the videotool repo, serving `landing/index.html` as the public site. Update download links to point to actual GitHub Release assets once TODO #7 produces them.
 
 **Why:** The landing page exists (`landing/index.html`) but isn't deployed. Beta testers (@lethar, @ouaiseddy) need a URL to visit, not a git clone. GitHub Pages is free, zero-config for static HTML, and already where the repo lives.
 
 **Steps:**
 1. Enable GitHub Pages in repo Settings → Pages → Source: "Deploy from a branch", branch `main`, folder `/landing`
-2. Verify the page loads at `https://jbmoutout.github.io/vodtool/`
-3. Once TODO #7 produces release assets, update download `href="#"` placeholders in `landing/index.html` to point to actual GitHub Release URLs (e.g., `https://github.com/jbmoutout/vodtool/releases/download/v0.1.0/vodtool-0.1.0-aarch64.dmg`)
+2. Verify the page loads at `https://jbmoutout.github.io/videotool/`
+3. Once TODO #7 produces release assets, update download `href="#"` placeholders in `landing/index.html` to point to actual GitHub Release URLs (e.g., `https://github.com/jbmoutout/videotool/releases/download/v0.1.0/videotool-0.1.0-aarch64.dmg`)
 4. Optional: configure custom domain later if needed
 
 **Pros:**
@@ -360,7 +360,7 @@ app.on_window_event(|event| {
 - No build step — it's one HTML file
 
 **Cons:**
-- URL is `jbmoutout.github.io/vodtool` (not a custom domain) — fine for beta
+- URL is `jbmoutout.github.io/videotool` (not a custom domain) — fine for beta
 - GitHub Pages has no analytics — add Simple Analytics or Plausible later if needed
 
 **Depends on:** `landing/index.html` exists (done), TODO #7 for actual download links

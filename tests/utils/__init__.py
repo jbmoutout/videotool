@@ -1,1 +1,1 @@
-"""Tests for vodtool.utils modules."""
+"""Tests for videotool.utils modules."""

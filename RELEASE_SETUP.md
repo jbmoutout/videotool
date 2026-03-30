@@ -53,7 +53,7 @@
   ```
 6. **Verify**:
   ```bash
-   curl https://vodtool-api.<your-subdomain>.workers.dev/health
+   curl https://videotool-api.<your-subdomain>.workers.dev/health
   ```
 
 ---

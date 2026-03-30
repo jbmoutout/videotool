@@ -1,11 +1,11 @@
-"""Tests for vodtool.utils.validation module."""
+"""Tests for videotool.utils.validation module."""
 
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
-from vodtool.utils.validation import (
+from videotool.utils.validation import (
     check_disk_space,
     check_file_size,
     get_projects_dir,
@@ -144,7 +144,7 @@ class TestGetProjectsDir:
     """Tests for get_projects_dir()."""
 
     def test_creates_directory_if_missing(self, temp_dir, monkeypatch):
-        """Creates ~/.vodtool/projects if it doesn't exist."""
+        """Creates ~/.videotool/projects if it doesn't exist."""
         # Mock Path.home() to return temp_dir
         def mock_home():
             return temp_dir
@@ -155,7 +155,7 @@ class TestGetProjectsDir:
         assert projects_dir.exists()
         assert projects_dir.is_dir()
         assert projects_dir.name == "projects"
-        assert projects_dir.parent.name == ".vodtool"
+        assert projects_dir.parent.name == ".videotool"
 
     def test_returns_existing_directory(self, temp_dir, monkeypatch):
         """Returns existing directory if already created."""

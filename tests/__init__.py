@@ -1,1 +1,1 @@
-"""VodTool test suite."""
+"""VideoTool test suite."""

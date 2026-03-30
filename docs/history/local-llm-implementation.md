@@ -2,11 +2,11 @@
 
 ## ✅ Implementation Complete
 
-Successfully added local LLM support to vodtool with side-by-side comparison functionality.
+Successfully added local LLM support to videotool with side-by-side comparison functionality.
 
 ## 🎯 What Was Built
 
-### 1. Core LLM Module ([src/vodtool/llm.py](../../src/vodtool/llm.py))
+### 1. Core LLM Module ([src/videotool/llm.py](../../src/videotool/llm.py))
 
 **Added Functions:**
 - `get_ollama_client(model)` - Initialize OpenAI client for local Ollama
@@ -19,7 +19,7 @@ Successfully added local LLM support to vodtool with side-by-side comparison fun
 - Both providers use identical prompts for consistent results
 - Unified error handling and response parsing
 
-### 2. Enhanced llm-topics Command ([src/vodtool/commands/llm_topics.py](../../src/vodtool/commands/llm_topics.py))
+### 2. Enhanced llm-topics Command ([src/videotool/commands/llm_topics.py](../../src/videotool/commands/llm_topics.py))
 
 **New Parameters:**
 - `--provider` (auto|anthropic|ollama) - Choose LLM provider
@@ -30,7 +30,7 @@ Successfully added local LLM support to vodtool with side-by-side comparison fun
 - **ollama**: Force local LLM (error if unavailable)
 - **anthropic**: Force Claude API (error if no key)
 
-### 3. New compare-llm Command ([src/vodtool/commands/compare_llm.py](../../src/vodtool/commands/compare_llm.py))
+### 3. New compare-llm Command ([src/videotool/commands/compare_llm.py](../../src/videotool/commands/compare_llm.py))
 
 **Functionality:**
 - Generates topics with both Claude and Ollama
@@ -39,11 +39,11 @@ Successfully added local LLM support to vodtool with side-by-side comparison fun
 - Cost analysis
 - Saves separate files: `topic_map_claude.json` and `topic_map_ollama.json`
 
-### 4. CLI Integration ([src/vodtool/cli.py](../../src/vodtool/cli.py))
+### 4. CLI Integration ([src/videotool/cli.py](../../src/videotool/cli.py))
 
 **Updated Commands:**
-- `vodtool llm-topics` - Now supports `--provider` and `--model` flags
-- `vodtool compare-llm` - New command for provider comparison
+- `videotool llm-topics` - Now supports `--provider` and `--model` flags
+- `videotool compare-llm` - New command for provider comparison
 
 ### 5. Documentation Updates
 
@@ -58,30 +58,30 @@ Successfully added local LLM support to vodtool with side-by-side comparison fun
 
 ```bash
 # Tries Ollama first, falls back to Anthropic
-vodtool llm-topics projects/my-stream
+videotool llm-topics projects/my-stream
 ```
 
 ### Force Local LLM
 
 ```bash
 # Requires Ollama installed and model pulled
-vodtool llm-topics projects/my-stream --provider ollama
-vodtool llm-topics projects/my-stream --provider ollama --model llama3.2:3b
+videotool llm-topics projects/my-stream --provider ollama
+videotool llm-topics projects/my-stream --provider ollama --model llama3.2:3b
 ```
 
 ### Force Anthropic API
 
 ```bash
 # Requires ANTHROPIC_API_KEY in .env
-vodtool llm-topics projects/my-stream --provider anthropic
+videotool llm-topics projects/my-stream --provider anthropic
 ```
 
 ### Compare Both Providers
 
 ```bash
 # Generates topics with both, shows comparison
-vodtool compare-llm projects/my-stream
-vodtool compare-llm projects/my-stream --max-topics 8 --ollama-model qwen2.5:3b
+videotool compare-llm projects/my-stream
+videotool compare-llm projects/my-stream --max-topics 8 --ollama-model qwen2.5:3b
 ```
 
 ## 🛠️ Setup for Local LLM
@@ -103,12 +103,12 @@ ollama pull llama3.2:3b    # Good all-around
 ollama pull gemma2:2b      # Lightest option
 ```
 
-### 3. Install vodtool with LLM support
+### 3. Install videotool with LLM support
 
 ```bash
 pip install -e .
 # or
-pip install 'vodtool[llm]'
+pip install 'videotool[llm]'
 ```
 
 ## 📊 Performance Expectations
@@ -124,10 +124,10 @@ pip install 'vodtool[llm]'
 ## 📁 Files Modified
 
 ### Core Implementation
-1. [src/vodtool/llm.py](../../src/vodtool/llm.py) - LLM client functions
-2. [src/vodtool/commands/llm_topics.py](../../src/vodtool/commands/llm_topics.py) - Enhanced command
-3. [src/vodtool/commands/compare_llm.py](../../src/vodtool/commands/compare_llm.py) - New comparison command
-4. [src/vodtool/cli.py](../../src/vodtool/cli.py) - CLI registration
+1. [src/videotool/llm.py](../../src/videotool/llm.py) - LLM client functions
+2. [src/videotool/commands/llm_topics.py](../../src/videotool/commands/llm_topics.py) - Enhanced command
+3. [src/videotool/commands/compare_llm.py](../../src/videotool/commands/compare_llm.py) - New comparison command
+4. [src/videotool/cli.py](../../src/videotool/cli.py) - CLI registration
 
 ### Configuration & Documentation
 5. [pyproject.toml](../../pyproject.toml) - Added openai dependency
@@ -150,41 +150,41 @@ pip install 'vodtool[llm]'
 
 #### 1. Auto Mode (Default)
 ```bash
-vodtool llm-topics projects/test-stream
+videotool llm-topics projects/test-stream
 # Should try Ollama first, show: "✓ Used local LLM (Ollama)"
 ```
 
 #### 2. Force Ollama
 ```bash
-vodtool llm-topics projects/test-stream --provider ollama
+videotool llm-topics projects/test-stream --provider ollama
 # Should use Ollama or error if unavailable
 ```
 
 #### 3. Force Anthropic
 ```bash
-vodtool llm-topics projects/test-stream --provider anthropic
+videotool llm-topics projects/test-stream --provider anthropic
 # Should use Claude API or error if no ANTHROPIC_API_KEY
 ```
 
 #### 4. Custom Model
 ```bash
-vodtool llm-topics projects/test-stream --provider ollama --model llama3.2:3b
+videotool llm-topics projects/test-stream --provider ollama --model llama3.2:3b
 # Should use specified model
 ```
 
 #### 5. Comparison Command
 ```bash
-vodtool compare-llm projects/test-stream
+videotool compare-llm projects/test-stream
 # Should generate both, display comparison tables
 ```
 
 #### 6. Integration with Downstream Commands
 ```bash
 # Verify cutplan works with local LLM topics
-vodtool cutplan projects/test-stream --topic topic_0000
+videotool cutplan projects/test-stream --topic topic_0000
 
 # Verify list-topics displays local LLM topics
-vodtool list-topics projects/test-stream
+videotool list-topics projects/test-stream
 ```
 
 ### Expected Outputs
@@ -227,7 +227,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ### "openai package not installed"
 ```bash
 # Install LLM dependencies
-pip install 'vodtool[llm]'
+pip install 'videotool[llm]'
 # or
 pip install openai>=1.0.0
 ```
