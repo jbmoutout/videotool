@@ -34,6 +34,23 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Import Apple certificate (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 12)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+          rm certificate.p12
+
       - name: Install Python dependencies and build CLI binary (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
@@ -57,6 +74,18 @@ jobs:
           fi
           cp "$ffmpeg_path" "src-tauri/binaries/ffmpeg-${{ matrix.target }}"
           cp "$ffprobe_path" "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+
+      - name: Codesign sidecar binaries (macOS)
+        if: matrix.platform == 'macos-latest'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          for bin in src-tauri/binaries/*-${{ matrix.target }}; do
+            echo "Signing $bin..."
+            codesign --force --options runtime --sign "$APPLE_SIGNING_IDENTITY" \
+              --entitlements src-tauri/Entitlements.plist "$bin"
+            codesign --verify --verbose "$bin"
+          done
 
       - name: Install Python dependencies and build CLI binary (Windows)
         if: matrix.platform == 'windows-latest'
