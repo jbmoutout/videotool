@@ -9,6 +9,22 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncSeekExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio_util::io::ReaderStream;
 
+// ── proxy config ─────────────────────────────────────────────────────────────
+
+/// Proxy URL: runtime env var (dev) takes priority over compile-time value (release).
+fn get_proxy_url() -> Option<String> {
+    std::env::var("VITE_API_PROXY_URL")
+        .ok()
+        .or_else(|| option_env!("VITE_API_PROXY_URL").map(String::from))
+}
+
+/// Proxy auth token: runtime env var (dev) takes priority over compile-time value (release).
+fn get_proxy_auth_token() -> Option<String> {
+    std::env::var("PROXY_AUTH_TOKEN")
+        .ok()
+        .or_else(|| option_env!("PROXY_AUTH_TOKEN").map(String::from))
+}
+
 // ── shared state ──────────────────────────────────────────────────────────────
 
 /// Holds the running subprocess so we can kill it on app close.
@@ -138,13 +154,22 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
     eprintln!("[videotool-app] PATH = {}", augmented_path);
 
     let quality_val = quality.unwrap_or_else(|| "worst".to_string());
-    let mut child = Command::new(&cli_path)
-        .args(["beats", &video_path, "--json-progress", "--quality", &quality_val])
+    let mut cmd = Command::new(&cli_path);
+    cmd.args(["beats", &video_path, "--json-progress", "--quality", &quality_val])
         .env("PATH", augmented_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
+        .kill_on_drop(true);
+
+    // Forward proxy config so the bundled Python CLI can reach the API proxy.
+    if let Some(url) = get_proxy_url() {
+        cmd.env("VITE_API_PROXY_URL", url);
+    }
+    if let Some(token) = get_proxy_auth_token() {
+        cmd.env("PROXY_AUTH_TOKEN", token);
+    }
+
+    let mut child = cmd.spawn()
         .map_err(|e| format!("Failed to spawn videotool: {e}"))?;
 
     let stdout = child.stdout.take().ok_or("Could not capture stdout")?;
