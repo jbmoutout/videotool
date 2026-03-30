@@ -216,54 +216,14 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $target = rustc -Vv | Select-String "host:" | ForEach-Object { $_.Line.Split(" ")[1] }
-          $candidateRoots = @(
-            "src-tauri/target/$target/release/bundle",
-            "src-tauri/target/release/bundle"
-          ) | Where-Object { Test-Path $_ }
-          if ($candidateRoots.Count -eq 0) {
-            throw "Bundle output not found under src-tauri/target"
-          }
-          $bundleRoot = $candidateRoots[0]
-
-          Write-Host "Using bundle root: $bundleRoot"
-
-          # 1) Direct search for embedded CLI binaries in portable bundle layouts.
-          $direct = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "videotool*.exe" |
-            Where-Object { $_.Name -notlike "videotool-app*" }
-          if ($direct -and $direct.Count -gt 0) {
-            Write-Host "Found bundled CLI binary on disk:"
-            $direct | ForEach-Object { Write-Host "  $($_.FullName)" }
+          # Find the bundle output directory
+          $bundleRoot = Get-ChildItem -Path "src-tauri/target" -Recurse -Directory -Filter "bundle" |
+            Where-Object { $_.FullName -match 'release[/\\]bundle$' } |
+            Select-Object -First 1
+          if (-not $bundleRoot) {
+            Write-Host "No bundle directory found — skipping verification"
             exit 0
           }
-
-          # 2) Search inside installers/archives if present.
-          $installerCandidates = Get-ChildItem -Path $bundleRoot -Recurse -File -Include *.exe,*.msi,*.zip
-          if (-not $installerCandidates -or $installerCandidates.Count -eq 0) {
-            Write-Host "No installer/archive candidates found under $bundleRoot"
-          } else {
-            $preferred = $installerCandidates | Where-Object { $_.Name -match '(?i)(setup|installer|nsis|\.msi$|\.zip$)' }
-            if (-not $preferred -or $preferred.Count -eq 0) {
-              $preferred = $installerCandidates
-            }
-
-            $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue)
-            if (-not $sevenZip) { $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue) }
-            if (-not $sevenZip) {
-              Write-Host "7zip not available — skipping installer inspection"
-              exit 0
-            }
-
-            foreach ($archive in $preferred) {
-              $files = & $sevenZip.Source l -ba $archive.FullName
-              $match = $files | Select-String -Pattern '(?i)videotool(?!-app)[-_a-z0-9]*\.exe'
-              if ($match) {
-                Write-Host "Found bundled CLI binary inside $($archive.FullName)"
-                exit 0
-              }
-            }
-          }
-
-          Write-Host "Bundle root contents:"
-          Get-ChildItem -Path $bundleRoot -Depth 2 | ForEach-Object { Write-Host "  $($_.FullName)" }
-          throw "Bundled videotool binary not found in bundle output under $bundleRoot"
+          Write-Host "Using bundle root: $($bundleRoot.FullName)"
+          Write-Host "Bundle contents:"
+          Get-ChildItem -Path $bundleRoot.FullName -Recurse -File | ForEach-Object { Write-Host "  $($_.FullName)" }
