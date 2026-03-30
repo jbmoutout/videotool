@@ -6,15 +6,15 @@
  * without buffering — supports large audio file uploads to Groq.
  *
  * Deploy: wrangler deploy
- * Secrets: wrangler secret put GROQ_API_KEY && wrangler secret put ANTHROPIC_API_KEY
+ * Secrets: wrangler secret put GROQ_API_KEY && wrangler secret put ANTHROPIC_API_KEY && wrangler secret put PROXY_AUTH_TOKEN
  */
 
 // NOTE: CORS is permissive by design — this is a public API proxy for VideoTool
-// desktop/web clients. Rate limiting (RATE_LIMIT_PER_DAY) is the primary abuse control.
+// desktop/web clients. Auth token + rate limiting are the abuse controls.
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key, anthropic-version",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key, anthropic-version, X-Proxy-Token",
 };
 
 export default {
@@ -26,6 +26,17 @@ export default {
 
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // Authenticate proxy requests with a shared token (stored as CF secret).
+    // Health check is excluded so monitoring works without credentials.
+    if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
+      if (env.PROXY_AUTH_TOKEN) {
+        const token = request.headers.get("X-Proxy-Token");
+        if (token !== env.PROXY_AUTH_TOKEN) {
+          return jsonResponse({ error: "Unauthorized" }, 401);
+        }
+      }
+    }
 
     // Simple IP-based rate limiting via KV (if bound) — otherwise skip
     if (env.RATE_LIMITS) {
