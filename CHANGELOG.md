@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - App now passes bundled ffmpeg path to the CLI at runtime for reliable media processing
+- Local builds now load `.env` values when no proxy or API keys are set in the environment
 
 ## [0.1.4] - 2026-03-30
 
