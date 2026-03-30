@@ -8,7 +8,7 @@ Can LLMs replace or enhance acoustic diarization?
 
 ## Answer: No for Core Diarization
 
-**Current system** ([diarize.py](../../src/vodtool/commands/diarize.py)): pyannote.audio 3.1
+**Current system** ([diarize.py](../../src/videotool/commands/diarize.py)): pyannote.audio 3.1
 - Acoustic deep learning on audio waveforms
 - Millisecond-precision speaker boundaries
 - Voice biometrics (pitch, timbre, accent)
@@ -56,8 +56,8 @@ Audio → pyannote → diarization_segments.json
 ```
 
 **Integration points**:
-- [chunks.py](../../src/vodtool/commands/chunks.py#L131-L181) - Speaker assignment
-- [segment_topics.py](../../src/vodtool/commands/segment_topics.py#L54-L65) - MAIN filter
+- [chunks.py](../../src/videotool/commands/chunks.py#L131-L181) - Speaker assignment
+- [segment_topics.py](../../src/videotool/commands/segment_topics.py#L54-L65) - MAIN filter
 
 ## Recommendation
 

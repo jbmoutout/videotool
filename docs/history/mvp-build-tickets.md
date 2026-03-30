@@ -32,23 +32,23 @@ Requirements:
 Here are the 10 tickets:
 
 1.
-Create a Python repo skeleton for a CLI tool named `vodtool` using Typer.
+Create a Python repo skeleton for a CLI tool named `videotool` using Typer.
 
 Requirements:
 - Use `src/` layout.
-- Provide `pyproject.toml` using setuptools (or hatch) so `pip install -e .` installs `vodtool`.
-- Add `src/vodtool/cli.py` with a Typer app exposing subcommands: ingest, transcribe, topics, cutplan, export (they can be stubs).
-- Add `src/vodtool/__init__.py`.
-- Add `README.md` with how to run: `vodtool --help`.
+- Provide `pyproject.toml` using setuptools (or hatch) so `pip install -e .` installs `videotool`.
+- Add `src/videotool/cli.py` with a Typer app exposing subcommands: ingest, transcribe, topics, cutplan, export (they can be stubs).
+- Add `src/videotool/__init__.py`.
+- Add `README.md` with how to run: `videotool --help`.
 - Add `Makefile` or simple `scripts/dev.sh` to run locally (optional).
 - Add minimal logging setup.
 
 Acceptance:
-- After `pip install -e .`, `vodtool --help` runs.
-- `vodtool ingest --help` etc. exist.
+- After `pip install -e .`, `videotool --help` runs.
+- `videotool ingest --help` etc. exist.
 
 2.
-Implement `vodtool ingest <input_video_path>`.
+Implement `videotool ingest <input_video_path>`.
 
 Behavior:
 - Create a project folder under `./projects/<project_id>/` where project_id is a short uuid.
@@ -58,18 +58,18 @@ Behavior:
 - Print the project path on success.
 
 Files to add/update:
-- `src/vodtool/commands/ingest.py` (or similar)
+- `src/videotool/commands/ingest.py` (or similar)
 - Wire into Typer in `cli.py`.
 
 Acceptance:
-- Running `vodtool ingest samples/test.mp4` creates the folder with `source.*`, `audio.wav`, `meta.json`.
+- Running `videotool ingest samples/test.mp4` creates the folder with `source.*`, `audio.wav`, `meta.json`.
 - `audio.wav` exists and is non-empty.
 - Command is idempotent only per run (new project each time is fine).
 - If ffmpeg missing, show a clear error message.
 
 
 3.
-Implement `vodtool transcribe <project_path> [--model small]`.
+Implement `videotool transcribe <project_path> [--model small]`.
 
 Behavior:
 - Load `audio.wav` from project.
@@ -79,7 +79,7 @@ Behavior:
 - Do not rerun if transcript_raw.json already exists unless `--force`.
 
 Files:
-- `src/vodtool/commands/transcribe.py`
+- `src/videotool/commands/transcribe.py`
 - Update CLI wiring.
 
 Acceptance:
@@ -89,7 +89,7 @@ Acceptance:
 - If whisper not installed or model download needed, surface a helpful message.
 
 4. 
-Implement `vodtool chunks <project_path>` to create `chunks.json`.
+Implement `videotool chunks <project_path>` to create `chunks.json`.
 
 Behavior:
 - Read `transcript_raw.json`.
@@ -106,7 +106,7 @@ Acceptance:
 - Output deterministic for same input.
 
 5. 
-Implement `vodtool embed <project_path> [--model sentence-transformers/all-MiniLM-L6-v2]`.
+Implement `videotool embed <project_path> [--model sentence-transformers/all-MiniLM-L6-v2]`.
 
 Behavior:
 - Read `chunks.json`.
@@ -123,7 +123,7 @@ Acceptance:
 - Deterministic ordering, stable chunk ids.
 
 6. 
-Implement `vodtool segment-topics <project_path> [--max-topics 8]` to create `topic_segments.json`.
+Implement `videotool segment-topics <project_path> [--max-topics 8]` to create `topic_segments.json`.
 
 Behavior:
 - Load embeddings from sqlite for chosen model (default same as embedding step).
@@ -139,7 +139,7 @@ Acceptance:
 - Output file is valid JSON and deterministic.
 
 7. 
-Implement `vodtool topics <project_path> [--max-topics 8]` to create `topic_map.json`.
+Implement `videotool topics <project_path> [--max-topics 8]` to create `topic_map.json`.
 
 Behavior:
 - Load `topic_segments.json` and embeddings.
@@ -158,7 +158,7 @@ Acceptance:
 - Deterministic results (set random seeds if needed).
 
 8. 
-Implement `vodtool label-topics <project_path>` to create `topic_map_labeled.json`.
+Implement `videotool label-topics <project_path>` to create `topic_map_labeled.json`.
 
 Behavior:
 - Load `topic_map.json` and chunks text.
@@ -173,7 +173,7 @@ Acceptance:
 - Does not overwrite if user edited label in an existing labeled file unless `--force`.
 
 9. 
-Implement `vodtool cutplan <project_path> --topic <topic_id>` to create `cutplan.json`.
+Implement `videotool cutplan <project_path> --topic <topic_id>` to create `cutplan.json`.
 
 Behavior:
 - Load `topic_map_labeled.json` (or topic_map.json if labeled missing).
@@ -188,13 +188,13 @@ Acceptance:
 - Sum(keep)+Sum(drop) approx equals total duration.
 
 10. 
-Implement `vodtool export <project_path>` to produce `export.mp4` and `export_index.json`.
+Implement `videotool export <project_path>` to produce `export.mp4` and `export_index.json`.
 
 11.
 We already shipped tickets 1-10. Now implement speaker diarization with at least 2 MAIN speakers and integrate into chunks/topics.
 
 Requirements:
-1) Add a new CLI command: `vodtool diarize <project_path> [--num-main 2]`.
+1) Add a new CLI command: `videotool diarize <project_path> [--num-main 2]`.
 2) Use pyannote.audio diarization (offline) to produce diarization segments:
    - Write `diarization_segments.json`: list of {start, end, speaker_id}, time-ordered.
 3) Compute total speaking time per speaker_id and map the top `--num-main` speakers to:
@@ -206,10 +206,10 @@ Requirements:
      "main_speakers": [{"role":"MAIN_1","speaker_id":"SPEAKER_00","seconds":1234.5}, ...],
      "other_speakers": [{"speaker_id":"SPEAKER_02","seconds":33.2}, ...]
    }
-4) Update existing `vodtool chunks <project_path>` to add `speaker` to each chunk:
+4) Update existing `videotool chunks <project_path>` to add `speaker` to each chunk:
    - Determine chunk speaker_id by maximum overlap with diarization segments, then map to MAIN_1/MAIN_2/OTHER via speaker_map.json.
    - If diarization files missing, keep current behavior (no speaker field or speaker="UNKNOWN", pick one and be consistent).
-5) Update `vodtool topics <project_path>` so topic segmentation/clustering uses only chunks where speaker in {MAIN_1, MAIN_2} by default, excluding OTHER.
+5) Update `videotool topics <project_path>` so topic segmentation/clustering uses only chunks where speaker in {MAIN_1, MAIN_2} by default, excluding OTHER.
    - Ensure downstream files remain compatible (topic_map still references chunk_ids; excluded chunks just won’t appear in topics).
 6) Add a small unit/integration test or at least a deterministic check:
    - If diarization detects >=2 speakers, speaker_map.json must include MAIN_1 and MAIN_2.

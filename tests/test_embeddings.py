@@ -1,11 +1,11 @@
-"""Tests for vodtool.embeddings module."""
+"""Tests for videotool.embeddings module."""
 
 import os
 from unittest import mock
 
 import pytest
 
-from vodtool.embeddings import (
+from videotool.embeddings import (
     OpenAIEmbeddingProvider,
     LocalEmbeddingProvider,
     get_embedding_provider,

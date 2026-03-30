@@ -1,11 +1,11 @@
-"""Tests for vodtool.llm module."""
+"""Tests for videotool.llm module."""
 
 import json
 from unittest import mock
 
 import pytest
 
-from vodtool.llm import (
+from videotool.llm import (
     _build_topic_extraction_prompt,
     _estimate_token_count,
     _parse_topic_response,
@@ -200,7 +200,7 @@ class TestSegmentTopicsWithLLM:
             mock_response,
         ]
 
-        with mock.patch("vodtool.llm.time.sleep"):  # Skip actual sleep
+        with mock.patch("videotool.llm.time.sleep"):  # Skip actual sleep
             topics = segment_topics_with_llm(mock_client, chunks)
 
         assert len(topics) == 1
@@ -217,7 +217,7 @@ class TestSegmentTopicsWithLLM:
 
         mock_client.messages.create.side_effect = NetworkTimeoutError("timeout")
 
-        with mock.patch("vodtool.llm.time.sleep"):
+        with mock.patch("videotool.llm.time.sleep"):
             with pytest.raises(ConnectionError, match="timeout/network error"):
                 segment_topics_with_llm(mock_client, chunks)
 
@@ -248,7 +248,7 @@ class TestSegmentTopicsWithLocalLLM:
             {"id": "chunk_0000", "start": 0.0, "end": 5.0, "text": "Short chunk"},
         ]
 
-        with mock.patch("vodtool.llm.get_ollama_client") as mock_get_client:
+        with mock.patch("videotool.llm.get_ollama_client") as mock_get_client:
             mock_client = mock.Mock()
             mock_get_client.return_value = mock_client
 
@@ -278,7 +278,7 @@ class TestSegmentTopicsWithLocalLLM:
             for i in range(50)  # 50 chunks with 200 chars each
         ]
 
-        with mock.patch("vodtool.llm.get_ollama_client") as mock_get_client:
+        with mock.patch("videotool.llm.get_ollama_client") as mock_get_client:
             mock_client = mock.Mock()
             mock_get_client.return_value = mock_client
 
@@ -297,7 +297,7 @@ class TestSegmentTopicsWithLocalLLM:
         """Raises error when Ollama API call fails."""
         chunks = [{"id": "chunk_0000", "start": 0.0, "end": 10.0, "text": "Test"}]
 
-        with mock.patch("vodtool.llm.get_ollama_client") as mock_get_client:
+        with mock.patch("videotool.llm.get_ollama_client") as mock_get_client:
             mock_client = mock.Mock()
             mock_get_client.return_value = mock_client
             mock_client.chat.completions.create.side_effect = Exception("Ollama error")

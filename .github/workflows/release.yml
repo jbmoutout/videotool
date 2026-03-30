@@ -37,8 +37,8 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.lock
           pip install -e . --no-deps
-          pyinstaller vodtool.spec
-          cp dist/vodtool src-tauri/binaries/vodtool-$(rustc -Vv | grep host | cut -f2 -d' ')
+          pyinstaller videotool.spec
+          cp dist/videotool src-tauri/binaries/videotool-$(rustc -Vv | grep host | cut -f2 -d' ')
 
       - name: Install Python dependencies and build CLI binary (Windows)
         if: matrix.platform == 'windows-latest'
@@ -47,9 +47,9 @@ jobs:
           pip install pyinstaller
           pip install -r requirements.lock
           pip install -e . --no-deps
-          pyinstaller vodtool.spec
+          pyinstaller videotool.spec
           $target = rustc -Vv | Select-String "host:" | ForEach-Object { $_.Line.Split(" ")[1] }
-          Copy-Item "dist\vodtool.exe" "src-tauri\binaries\vodtool-$target.exe"
+          Copy-Item "dist\videotool.exe" "src-tauri\binaries\videotool-$target.exe"
 
       - name: Set up Rust target
         if: matrix.platform == 'macos-latest'
@@ -80,7 +80,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "vodtool ${{ github.ref_name }}"
+          releaseName: "videotool ${{ github.ref_name }}"
           releaseBody: "See CHANGELOG.md for release notes."
           releaseDraft: true
           prerelease: false

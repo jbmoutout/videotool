@@ -1,8 +1,8 @@
-"""Tests for vodtool.utils.pipeline module."""
+"""Tests for videotool.utils.pipeline module."""
 
 import pytest
 
-from vodtool.utils.pipeline import (
+from videotool.utils.pipeline import (
     PIPELINE_STAGES,
     check_pipeline_dependencies,
     require_file,
@@ -30,14 +30,14 @@ class TestRequireFile:
         """Prints helpful command suggestion for known pipeline stage."""
         require_file(mock_project_dir, "chunks.json", stage_name="chunks")
         captured = capsys.readouterr()
-        assert "vodtool chunks" in captured.out
+        assert "videotool chunks" in captured.out
         assert "create semantic chunks" in captured.out
 
     def test_finds_stage_without_explicit_name(self, mock_project_dir, capsys):
         """Finds stage by output filename even without stage_name parameter."""
         require_file(mock_project_dir, "transcript_raw.json")
         captured = capsys.readouterr()
-        assert "vodtool transcribe" in captured.out
+        assert "videotool transcribe" in captured.out
 
 
 class TestRequirePipelineStage:
