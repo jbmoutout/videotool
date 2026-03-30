@@ -1,4 +1,4 @@
-"""Tests for vodtool.commands.ingest module."""
+"""Tests for videotool.commands.ingest module."""
 
 import json
 import subprocess
@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from vodtool.commands.ingest import (
+from videotool.commands.ingest import (
     check_ffmpeg_available,
     extract_audio,
     get_ffprobe_path,
@@ -105,7 +105,7 @@ class TestIngestVideo:
 
     def test_no_ffmpeg(self, monkeypatch):
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_ffmpeg_available", lambda _: False
+            "videotool.commands.ingest.check_ffmpeg_available", lambda _: False
         )
         result = ingest_video("/tmp/nonexistent.mp4")
         assert result is None
@@ -114,7 +114,7 @@ class TestIngestVideo:
 
     def test_invalid_file(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_ffmpeg_available", lambda _: True
+            "videotool.commands.ingest.check_ffmpeg_available", lambda _: True
         )
         bad_file = tmp_path / "not_a_video.txt"
         bad_file.write_text("hello")
@@ -124,7 +124,7 @@ class TestIngestVideo:
 
     def test_nonexistent_file(self, monkeypatch):
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_ffmpeg_available", lambda _: True
+            "videotool.commands.ingest.check_ffmpeg_available", lambda _: True
         )
         result = ingest_video("/tmp/does_not_exist_12345.mp4")
         assert result is None
@@ -133,7 +133,7 @@ class TestIngestVideo:
     def test_returns_path_not_tuple(self, tmp_path, monkeypatch):
         """ingest_video() returns Optional[Path], not a tuple."""
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_ffmpeg_available", lambda _: True
+            "videotool.commands.ingest.check_ffmpeg_available", lambda _: True
         )
         result = ingest_video("/tmp/does_not_exist_12345.mp4")
         # On failure it's None
@@ -149,22 +149,22 @@ class TestIngestTwitch:
                             remux_ok=True, extract_ok=True):
         """Wire up all mocks for a Twitch ingest. Returns project_dir."""
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_streamlink", lambda: True
+            "videotool.commands.ingest.check_streamlink", lambda: True
         )
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_ffmpeg_available", lambda _: True
+            "videotool.commands.ingest.check_ffmpeg_available", lambda _: True
         )
         monkeypatch.setattr(
-            "vodtool.commands.ingest.get_projects_dir", lambda: tmp_path
+            "videotool.commands.ingest.get_projects_dir", lambda: tmp_path
         )
         monkeypatch.setattr(
-            "vodtool.commands.ingest.get_available_streams", lambda _: ["160p", "360p", "worst", "best"]
+            "videotool.commands.ingest.get_available_streams", lambda _: ["160p", "360p", "worst", "best"]
         )
         monkeypatch.setattr(
-            "vodtool.commands.ingest.fetch_vod_metadata", lambda _: None
+            "videotool.commands.ingest.fetch_vod_metadata", lambda _: None
         )
         monkeypatch.setattr(
-            "vodtool.commands.ingest.download_chat", lambda vid, path: False
+            "videotool.commands.ingest.download_chat", lambda vid, path: False
         )
 
         def fake_download_progress(url, output_path, quality="worst", progress_callback=None):
@@ -178,10 +178,10 @@ class TestIngestTwitch:
             return download_ok
 
         monkeypatch.setattr(
-            "vodtool.commands.ingest.download_vod_with_progress", fake_download_progress
+            "videotool.commands.ingest.download_vod_with_progress", fake_download_progress
         )
         monkeypatch.setattr(
-            "vodtool.utils.twitch.download_vod", fake_download
+            "videotool.utils.twitch.download_vod", fake_download
         )
 
         def fake_subprocess_run(cmd, **kwargs):
@@ -212,7 +212,7 @@ class TestIngestTwitch:
             return False
 
         monkeypatch.setattr(
-            "vodtool.commands.ingest.extract_audio", fake_extract_audio
+            "videotool.commands.ingest.extract_audio", fake_extract_audio
         )
 
     def test_success_produces_source_mp4_and_audio_wav(self, tmp_path, monkeypatch):
@@ -283,7 +283,7 @@ class TestIngestTwitch:
     def test_streamlink_not_installed(self, monkeypatch):
         """check_streamlink() → False means early return None."""
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_streamlink", lambda: False
+            "videotool.commands.ingest.check_streamlink", lambda: False
         )
         result = ingest_video("https://twitch.tv/videos/123456")
         assert result is None
@@ -292,10 +292,10 @@ class TestIngestTwitch:
     def test_ffmpeg_not_installed_for_twitch(self, monkeypatch):
         """check_ffmpeg_available() → False means early return None."""
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_streamlink", lambda: True
+            "videotool.commands.ingest.check_streamlink", lambda: True
         )
         monkeypatch.setattr(
-            "vodtool.commands.ingest.check_ffmpeg_available", lambda _: False
+            "videotool.commands.ingest.check_ffmpeg_available", lambda _: False
         )
         result = ingest_video("https://twitch.tv/videos/123456")
         assert result is None

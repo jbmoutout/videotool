@@ -1,3 +1,5 @@
+# IMPORTANT: keep as "vodtool-api" — this is the deployed Cloudflare Worker name.
+# Changing it would create a new worker instead of updating the existing one.
 name = "vodtool-api"
 main = "src/worker.js"
 compatibility_date = "2024-12-01"

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Development setup script for vodtool
+# Development setup script for videotool
 
 set -e
 
-echo "Setting up vodtool development environment..."
+echo "Setting up videotool development environment..."
 
 # Check if Python 3.9+ is available
 if ! command -v python3 &> /dev/null; then
@@ -29,10 +29,10 @@ echo "Upgrading pip..."
 pip install --upgrade pip
 
 # Install package in editable mode
-echo "Installing vodtool in development mode..."
+echo "Installing videotool in development mode..."
 pip install -e .
 
 echo ""
 echo "Development environment ready!"
 echo "To activate the environment, run: source .venv/bin/activate"
-echo "To test the CLI, run: vodtool --help"
+echo "To test the CLI, run: videotool --help"

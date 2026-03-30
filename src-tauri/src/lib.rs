@@ -28,7 +28,7 @@ struct ViewerServerState {
 
 // ── IPC message types ─────────────────────────────────────────────────────────
 
-/// Progress line emitted by `vodtool pipeline --json-progress`.
+/// Progress line emitted by `videotool pipeline --json-progress`.
 /// {"step":1,"total":5,"pct":0.2,"msg":"Ingesting video..."}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ProgressMsg {
@@ -40,7 +40,7 @@ pub struct ProgressMsg {
     pub download_pct: Option<u32>,
 }
 
-/// Error line emitted by `vodtool pipeline --json-progress` on failure.
+/// Error line emitted by `videotool pipeline --json-progress` on failure.
 /// {"error":"Transcription failed","step":2}
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ErrorMsg {
@@ -118,7 +118,7 @@ pub struct BeatsResponse {
 
 // ── Tauri commands ────────────────────────────────────────────────────────────
 
-/// Start the vodtool pipeline for the given video path.
+/// Start the videotool pipeline for the given video path.
 /// Spawns subprocess, reads stdout line-by-line in a Tokio task,
 /// emits `progress`, `done`, or `error` events to the frontend.
 #[tauri::command]
@@ -133,9 +133,9 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
         path_env
     );
 
-    eprintln!("[vodtool-app] cli_path = {:?}", cli_path);
-    eprintln!("[vodtool-app] video_path = {:?}", video_path);
-    eprintln!("[vodtool-app] PATH = {}", augmented_path);
+    eprintln!("[videotool-app] cli_path = {:?}", cli_path);
+    eprintln!("[videotool-app] video_path = {:?}", video_path);
+    eprintln!("[videotool-app] PATH = {}", augmented_path);
 
     let quality_val = quality.unwrap_or_else(|| "worst".to_string());
     let mut child = Command::new(&cli_path)
@@ -145,7 +145,7 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
         .stderr(std::process::Stdio::inherit())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("Failed to spawn vodtool: {e}"))?;
+        .map_err(|e| format!("Failed to spawn videotool: {e}"))?;
 
     let stdout = child.stdout.take().ok_or("Could not capture stdout")?;
 
@@ -220,7 +220,7 @@ fn parse_and_emit(app: &AppHandle, line: &str, last_non_json: &mut String) -> bo
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
         // Non-JSON (Python warning/traceback) — log for debugging and keep
         // the last line so we can include it in crash error messages.
-        eprintln!("[vodtool-app] subprocess: {line}");
+        eprintln!("[videotool-app] subprocess: {line}");
         *last_non_json = line.to_string();
         return false;
     };
@@ -235,13 +235,13 @@ fn parse_and_emit(app: &AppHandle, line: &str, last_non_json: &mut String) -> bo
             let _ = app.emit("pipeline-error-msg", msg);
             return true;
         } else {
-            eprintln!("[vodtool-app] failed to deserialize error line: {line}");
+            eprintln!("[videotool-app] failed to deserialize error line: {line}");
         }
     } else if value.get("step").is_some() {
         if let Ok(msg) = serde_json::from_value::<ProgressMsg>(value) {
             let _ = app.emit("pipeline-progress", msg);
         } else {
-            eprintln!("[vodtool-app] failed to deserialize progress line: {line}");
+            eprintln!("[videotool-app] failed to deserialize progress line: {line}");
         }
     }
 
@@ -360,12 +360,12 @@ async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16,
         .map_err(|e| format!("Failed to get port: {e}"))?
         .port();
 
-    eprintln!("[vodtool-app] viewer server starting on http://127.0.0.1:{port}");
+    eprintln!("[videotool-app] viewer server starting on http://127.0.0.1:{port}");
 
     tokio::spawn(async move {
         axum::serve(listener, router)
             .await
-            .unwrap_or_else(|e| eprintln!("[vodtool-app] viewer server error: {e}"));
+            .unwrap_or_else(|e| eprintln!("[videotool-app] viewer server error: {e}"));
     });
 
     *port_handle.lock().unwrap() = Some(port);
@@ -546,14 +546,14 @@ fn parse_range(range_str: &str, file_size: u64) -> Option<(u64, u64)> {
     Some((start, end.min(file_size - 1)))
 }
 
-/// Seed a demo project into ~/.vodtool/projects/ if it doesn't already exist.
+/// Seed a demo project into ~/.videotool/projects/ if it doesn't already exist.
 /// Returns true if the demo was written, false if it already existed.
 #[tauri::command]
 fn seed_demo_project() -> Result<bool, String> {
     let home = std::env::var("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
-    let demo_dir = home.join(".vodtool").join("projects").join("demo_sample");
+    let demo_dir = home.join(".videotool").join("projects").join("demo_sample");
 
     if demo_dir.join("beats.json").exists() {
         return Ok(false);
@@ -579,7 +579,7 @@ fn list_projects() -> Result<Vec<ProjectInfo>, String> {
     let home = std::env::var("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
-    let projects_dir = home.join(".vodtool").join("projects");
+    let projects_dir = home.join(".videotool").join("projects");
 
     if !projects_dir.exists() {
         return Ok(vec![]);
@@ -655,19 +655,19 @@ fn cancel_pipeline(app: AppHandle) {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-/// Resolve the path to the bundled `vodtool` CLI binary.
+/// Resolve the path to the bundled `videotool` CLI binary.
 /// In dev: uses system PATH. In release: bundled inside the app Resources.
 fn resolve_cli_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     // Release: binary is bundled via tauri.conf.json `externalBin`.
     if let Ok(resource_path) = app.path().resource_dir() {
-        let bundled = resource_path.join("vodtool");
+        let bundled = resource_path.join("videotool");
         if bundled.exists() {
             return Ok(bundled);
         }
     }
 
     // Dev fallback: use PATH.
-    Ok(std::path::PathBuf::from("vodtool"))
+    Ok(std::path::PathBuf::from("videotool"))
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

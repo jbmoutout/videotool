@@ -1,4 +1,4 @@
-title = "VodTool gitleaks config"
+title = "VideoTool gitleaks config"
 
 [allowlist]
   paths = [
