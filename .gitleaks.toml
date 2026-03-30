@@ -1,0 +1,9 @@
+title = "VodTool gitleaks config"
+
+[allowlist]
+  paths = [
+    '''\.env\.example''',
+    '''requirements\.lock''',
+    '''node_modules/''',
+    '''src-tauri/target/''',
+  ]
