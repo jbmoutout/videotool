@@ -5,7 +5,7 @@
 #   source .venv/bin/activate
 #   pyinstaller videotool.spec
 #
-# Output: dist/videotool  (single binary, ~80-120MB on macOS)
+# Output: dist/videotool  (single binary, uses API providers — no local ML deps)
 
 import sys
 from pathlib import Path
@@ -19,7 +19,11 @@ a = Analysis(
     binaries=[],
     datas=[],
     hiddenimports=[
-        # videotool commands — all loaded dynamically via typer
+        # Commands used by Tauri app (beats pipeline)
+        "videotool.commands.ingest",
+        "videotool.commands.transcribe",
+        "videotool.commands.llm_beats",
+        # Other commands loaded dynamically via typer
         "videotool.commands.chunks",
         "videotool.commands.compare_llm",
         "videotool.commands.cutplan",
@@ -28,7 +32,6 @@ a = Analysis(
         "videotool.commands.embed",
         "videotool.commands.explain_chunk",
         "videotool.commands.export",
-        "videotool.commands.ingest",
         "videotool.commands.inspect_topic",
         "videotool.commands.label_topics",
         "videotool.commands.list_topics",
@@ -37,8 +40,7 @@ a = Analysis(
         "videotool.commands.segment_topics",
         "videotool.commands.show_topics",
         "videotool.commands.topics",
-        "videotool.commands.transcribe",
-        # Optional LLM deps — present at runtime if installed
+        # API clients
         "anthropic",
         "openai",
     ],
@@ -46,15 +48,23 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Heavy ML deps not needed for the pipeline — reduce binary size
+        # ML deps not needed — Tauri app uses API providers, not local models
         "torch",
         "torchvision",
         "torchaudio",
         "pyannote",
+        "whisper",
+        "sentence_transformers",
+        "sklearn",
+        "scipy",
+        "numpy",
         "matplotlib",
+        "pandas",
         "IPython",
         "notebook",
         "pytest",
+        "black",
+        "ruff",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
