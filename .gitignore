@@ -28,13 +28,13 @@ PIP_DELETE_THIS_DIRECTORY.txt
 
 # PyInstaller
 *.manifest
-# Note: vodtool.spec is tracked — it's the build spec, not a generated file
+# Note: videotool.spec is tracked — it's the build spec, not a generated file
 
 # Tauri / Rust build artifacts
 src-tauri/target/
 src-tauri/gen/
-# External binaries (built by CI or locally via pyinstaller vodtool.spec)
-src-tauri/binaries/vodtool*
+# External binaries (built by CI or locally via pyinstaller videotool.spec)
+src-tauri/binaries/videotool*
 !src-tauri/binaries/.gitkeep
 
 # Node / frontend build artifacts
@@ -43,7 +43,7 @@ node_modules/
 build/
 
 # PyInstaller output
-dist/vodtool
+dist/videotool
 
 # Installer logs
 pip-log.txt

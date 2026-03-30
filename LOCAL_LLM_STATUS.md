@@ -8,18 +8,18 @@ Successfully implemented local LLM support via Ollama with automatic batching fo
 
 ### ✅ Completed Features
 
-1. **Ollama Client Integration** ([llm.py:32-68](src/vodtool/llm.py#L32-L68))
+1. **Ollama Client Integration** ([llm.py:32-68](src/videotool/llm.py#L32-L68))
    - OpenAI-compatible API client for Ollama
    - Model verification and error handling
    - Connection testing
 
-2. **Batched Processing** ([llm.py:206-301](src/vodtool/llm.py#L206-L301))
+2. **Batched Processing** ([llm.py:206-301](src/videotool/llm.py#L206-L301))
    - Automatic input size detection
    - Conservative token estimation (1 token ≈ 4 characters)
    - Splits large transcripts into batches of ~4-6 chunks
    - Configurable MAX_INPUT_TOKENS (set to 1000 for stability)
 
-3. **Hybrid Provider System** ([commands/llm_topics.py:97-219](src/vodtool/commands/llm_topics.py#L97-L219))
+3. **Hybrid Provider System** ([commands/llm_topics.py:97-219](src/videotool/commands/llm_topics.py#L97-L219))
    - `--provider auto` (default): Tries Ollama → falls back to Anthropic
    - `--provider ollama`: Forces local LLM
    - `--provider anthropic`: Forces API
@@ -30,7 +30,7 @@ Successfully implemented local LLM support via Ollama with automatic batching fo
    - `_parse_topic_response()`: Unified JSON parsing
    - Ensures identical output format between providers
 
-5. **Comparison Command** ([commands/compare_llm.py](src/vodtool/commands/compare_llm.py))
+5. **Comparison Command** ([commands/compare_llm.py](src/videotool/commands/compare_llm.py))
    - Side-by-side comparison of Claude vs Ollama
    - Performance metrics (time, topic count, speed ratio)
    - Cost analysis
@@ -66,7 +66,7 @@ SIGABRT: abort
 
 ### Conclusion
 
-**Local LLM requires 16GB+ RAM** for reliable inference with vodtool's typical transcript sizes (100+ chunks).
+**Local LLM requires 16GB+ RAM** for reliable inference with videotool's typical transcript sizes (100+ chunks).
 
 ## Working Configurations
 
@@ -87,27 +87,27 @@ SIGABRT: abort
 
 ```bash
 # Use Anthropic API directly
-vodtool llm-topics projects/aeacdbb1 --provider anthropic
+videotool llm-topics projects/aeacdbb1 --provider anthropic
 
 # Or rely on auto-fallback (tries Ollama, falls back to Claude)
-vodtool llm-topics projects/aeacdbb1
+videotool llm-topics projects/aeacdbb1
 ```
 
 ### For 16GB+ RAM
 
 ```bash
 # Use local LLM (free)
-vodtool llm-topics projects/aeacdbb1 --provider ollama
+videotool llm-topics projects/aeacdbb1 --provider ollama
 
 # Auto mode tries local first
-vodtool llm-topics projects/aeacdbb1
+videotool llm-topics projects/aeacdbb1
 ```
 
 ### Compare Both Providers
 
 ```bash
 # Requires both ANTHROPIC_API_KEY and working Ollama
-vodtool compare-llm projects/aeacdbb1
+videotool compare-llm projects/aeacdbb1
 ```
 
 ## Test Results
@@ -128,10 +128,10 @@ vodtool compare-llm projects/aeacdbb1
 ## Files Modified
 
 ### Core Implementation
-- [src/vodtool/llm.py](src/vodtool/llm.py) - Ollama client + batching
-- [src/vodtool/commands/llm_topics.py](src/vodtool/commands/llm_topics.py) - Provider selection
-- [src/vodtool/commands/compare_llm.py](src/vodtool/commands/compare_llm.py) - Comparison command
-- [src/vodtool/cli.py](src/vodtool/cli.py) - CLI registration
+- [src/videotool/llm.py](src/videotool/llm.py) - Ollama client + batching
+- [src/videotool/commands/llm_topics.py](src/videotool/commands/llm_topics.py) - Provider selection
+- [src/videotool/commands/compare_llm.py](src/videotool/commands/compare_llm.py) - Comparison command
+- [src/videotool/cli.py](src/videotool/cli.py) - CLI registration
 
 ### Configuration
 - [pyproject.toml](pyproject.toml) - Added `openai>=1.0.0` dependency
@@ -154,7 +154,7 @@ vodtool compare-llm projects/aeacdbb1
 ANTHROPIC_API_KEY=your_key_here
 
 # Run with API
-vodtool llm-topics projects/<project-id> --provider anthropic
+videotool llm-topics projects/<project-id> --provider anthropic
 ```
 
 **Benefits:**

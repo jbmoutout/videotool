@@ -1,4 +1,4 @@
-# Local LLM Migration Plan for VodTool
+# Local LLM Migration Plan for VideoTool
 
 **Date:** 2026-01-11
 **Current State:** Using Claude Sonnet 4 API (`claude-sonnet-4-20250514`) via Anthropic SDK
@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document evaluates the complexity, performance, and feasibility of replacing Anthropic's Claude API with a local LLM for topic tagging in VodTool. Based on 2026 benchmarks, **Qwen3-4B** emerges as the best candidate for this specific task.
+This document evaluates the complexity, performance, and feasibility of replacing Anthropic's Claude API with a local LLM for topic tagging in VideoTool. Based on 2026 benchmarks, **Qwen3-4B** emerges as the best candidate for this specific task.
 
 ### Key Findings
 
@@ -22,9 +22,9 @@ This document evaluates the complexity, performance, and feasibility of replacin
 
 ## Current Implementation Analysis
 
-### LLM Usage in VodTool
+### LLM Usage in VideoTool
 
-**File:** [src/vodtool/llm.py](src/vodtool/llm.py)
+**File:** [src/videotool/llm.py](src/videotool/llm.py)
 
 **Primary Task:** Topic segmentation and labeling of video transcript chunks
 
@@ -48,7 +48,7 @@ This document evaluates the complexity, performance, and feasibility of replacin
 
 ### Prompt Requirements
 
-The prompt in [llm.py:46-80](src/vodtool/llm.py#L46-L80) has specific constraints:
+The prompt in [llm.py:46-80](src/videotool/llm.py#L46-L80) has specific constraints:
 
 1. **Label Generation:** 3-6 words, uses host's voice/slang
 2. **Chunk Assignment:** Non-contiguous chunks allowed (topic can "return" later)
@@ -253,7 +253,7 @@ print(response["choices"][0]["message"]["content"])
 **2.1 Create Local LLM Module**
 
 ```python
-# src/vodtool/llm_local.py
+# src/videotool/llm_local.py
 
 from llama_cpp import Llama
 from pathlib import Path
@@ -264,12 +264,12 @@ logger = logging.getLogger(__name__)
 
 def get_local_llm_client():
     """Initialize llama.cpp client with Qwen3-4B."""
-    model_path = Path.home() / ".vodtool" / "models" / "Qwen3-4B-Instruct-Q5_K_M.gguf"
+    model_path = Path.home() / ".videotool" / "models" / "Qwen3-4B-Instruct-Q5_K_M.gguf"
 
     if not model_path.exists():
         raise FileNotFoundError(
             f"Model not found at {model_path}\n"
-            f"Download with: vodtool download-model qwen3-4b"
+            f"Download with: videotool download-model qwen3-4b"
         )
 
     return Llama(
@@ -304,7 +304,7 @@ def segment_topics_with_local_llm(chunks, max_topics=None):
 **2.2 Add CLI Command**
 
 ```python
-# src/vodtool/cli.py
+# src/videotool/cli.py
 
 @app.command()
 def local_llm_topics(
@@ -313,8 +313,8 @@ def local_llm_topics(
     model: str = typer.Option("qwen3-4b", help="Model to use"),
 ):
     """Generate topics using local LLM."""
-    from vodtool.commands.llm_topics import llm_topics_impl
-    from vodtool.llm_local import segment_topics_with_local_llm
+    from videotool.commands.llm_topics import llm_topics_impl
+    from videotool.llm_local import segment_topics_with_local_llm
 
     llm_topics_impl(project_dir, max_topics, llm_fn=segment_topics_with_local_llm)
 ```
@@ -329,7 +329,7 @@ def download_model(
 ):
     """Download local LLM model."""
     # Download from Hugging Face
-    # Save to ~/.vodtool/models/
+    # Save to ~/.videotool/models/
     pass
 ```
 
@@ -344,11 +344,11 @@ For fully local processing without API calls:
 
 ```bash
 # Download model (one-time, ~3GB)
-vodtool download-model qwen3-4b
+videotool download-model qwen3-4b
 
 # Generate topics locally
-vodtool local-llm-topics projects/<project-id>
-vodtool local-llm-topics projects/<project-id> --max-topics 8
+videotool local-llm-topics projects/<project-id>
+videotool local-llm-topics projects/<project-id> --max-topics 8
 ```
 
 **Comparison:**
@@ -419,7 +419,7 @@ vodtool local-llm-topics projects/<project-id> --max-topics 8
 
 ```python
 # .env or config.toml
-VODTOOL_LLM_MODE=local  # or "api" or "auto"
+VIDEOTOOL_LLM_MODE=local  # or "api" or "auto"
 ANTHROPIC_API_KEY=sk-...  # optional
 ```
 
@@ -565,7 +565,7 @@ ANTHROPIC_API_KEY=sk-...  # optional
 **Recommendation:** Proceed with local LLM implementation using **Qwen3-4B-Instruct** with a hybrid approach.
 
 **Key Benefits:**
-- Aligns with VodTool's privacy-first, open-core philosophy
+- Aligns with VideoTool's privacy-first, open-core philosophy
 - Eliminates API costs and rate limits
 - Acceptable quality tradeoff (60-80% of Claude)
 - Enables offline processing

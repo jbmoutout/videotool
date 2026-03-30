@@ -1,4 +1,4 @@
-"""Tests for vodtool.utils.twitch module."""
+"""Tests for videotool.utils.twitch module."""
 
 import json
 import subprocess
@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 
-from vodtool.utils.twitch import (
+from videotool.utils.twitch import (
     check_streamlink,
     download_vod,
     download_vod_with_progress,
