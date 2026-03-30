@@ -75,7 +75,7 @@ jobs:
 
       - name: Install Windows dependencies
         if: matrix.platform == 'windows-latest'
-        run: choco install ffmpeg yt-dlp -y
+        run: choco install ffmpeg yt-dlp 7zip -y
 
       - name: Bundle ffmpeg (Windows)
         if: matrix.platform == 'windows-latest'
@@ -123,9 +123,20 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           set -euo pipefail
-          app_dir=$(ls -d src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -n 1 || true)
+          bundle_root=""
+          if [ -n "${{ matrix.target }}" ] && [ -d "src-tauri/target/${{ matrix.target }}/release/bundle/macos" ]; then
+            bundle_root="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          elif [ -d "src-tauri/target/release/bundle/macos" ]; then
+            bundle_root="src-tauri/target/release/bundle/macos"
+          fi
+          if [ -z "$bundle_root" ]; then
+            echo "No macOS bundle directory found under src-tauri/target"
+            exit 1
+          fi
+
+          app_dir=$(ls -d "$bundle_root"/*.app 2>/dev/null | head -n 1 || true)
           if [ -z "$app_dir" ]; then
-            echo "No .app bundle found in src-tauri/target/release/bundle/macos"
+            echo "No .app bundle found in $bundle_root"
             exit 1
           fi
 
@@ -162,18 +173,34 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $bundleRoot = "src-tauri/target/release/bundle"
-          if (!(Test-Path $bundleRoot)) {
-            throw "Bundle output not found: $bundleRoot"
+          $target = rustc -Vv | Select-String "host:" | ForEach-Object { $_.Line.Split(" ")[1] }
+          $candidateRoots = @(
+            "src-tauri/target/$target/release/bundle",
+            "src-tauri/target/release/bundle"
+          ) | Where-Object { Test-Path $_ }
+          if ($candidateRoots.Count -eq 0) {
+            throw "Bundle output not found under src-tauri/target"
           }
-          $candidateDirs = @("nsis", "msi", "wix", "windows") | ForEach-Object { Join-Path $bundleRoot $_ } | Where-Object { Test-Path $_ }
-          $candidates = @()
-          foreach ($dir in $candidateDirs) {
-            $candidates += Get-ChildItem -Path $dir -Recurse -File -Filter "videotool*.exe" | Where-Object { $_.Name -notlike "videotool-app*" }
+          $bundleRoot = $candidateRoots[0]
+
+          $installer = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "*.exe" |
+            Where-Object { $_.Name -like "*setup*.exe" -or $_.Name -like "*installer*.exe" } |
+            Select-Object -First 1
+          if (-not $installer) {
+            $installer = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "*.msi" | Select-Object -First 1
           }
-          if ($candidates.Count -eq 0) {
-            $candidates = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "videotool*.exe" | Where-Object { $_.Name -notlike "videotool-app*" }
+          if (-not $installer) {
+            throw "No Windows installer found under $bundleRoot"
           }
-          if ($null -eq $candidates -or $candidates.Count -eq 0) {
-            throw "Bundled videotool binary not found in bundle output"
+
+          $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue)
+          if (-not $sevenZip) { $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue) }
+          if (-not $sevenZip) {
+            throw "7zip not available to inspect installer contents"
+          }
+
+          $files = & $sevenZip.Source l -ba $installer.FullName
+          $match = $files | Select-String -Pattern '(?i)videotool(?!-app)[-_a-z0-9]*\.exe'
+          if (-not $match) {
+            throw "Bundled videotool binary not found inside installer $($installer.Name)"
           }
