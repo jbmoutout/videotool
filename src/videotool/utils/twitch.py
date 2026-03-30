@@ -5,8 +5,11 @@ import logging
 import re
 import subprocess
 import time
-from pathlib import Path
 from typing import Optional
+from pathlib import Path
+
+_STREAMLINK_SESSION = None
+_STREAMLINK_IMPORT_ERROR: Optional[Exception] = None
 
 logger = logging.getLogger("videotool")
 
@@ -26,8 +29,29 @@ def is_twitch_url(value: str) -> bool:
     return bool(re.search(r"twitch\.tv/videos/\d+", value))
 
 
+def _get_streamlink_session():
+    """Return a cached Streamlink session if available, else None."""
+    global _STREAMLINK_SESSION, _STREAMLINK_IMPORT_ERROR
+    if _STREAMLINK_SESSION is not None:
+        return _STREAMLINK_SESSION
+    if _STREAMLINK_IMPORT_ERROR is not None:
+        return None
+    try:
+        import streamlink  # noqa: F401
+        from streamlink import Streamlink
+        import streamlink.plugins.twitch  # noqa: F401
+        _STREAMLINK_SESSION = Streamlink()
+        return _STREAMLINK_SESSION
+    except Exception as e:
+        _STREAMLINK_IMPORT_ERROR = e
+        logger.warning(f"Streamlink API unavailable: {e}")
+        return None
+
+
 def check_streamlink() -> bool:
-    """Return True if streamlink is available."""
+    """Return True if streamlink is available (API or CLI)."""
+    if _get_streamlink_session() is not None:
+        return True
     try:
         result = subprocess.run(
             ["streamlink", "--version"],
@@ -51,6 +75,15 @@ def get_available_streams(url: str) -> Optional[list[str]]:
     Returns a list of stream names (e.g. ['audio', '480p', '720p60', 'best'])
     or None if the query fails. Stderr is suppressed to avoid blocking.
     """
+    session = _get_streamlink_session()
+    if session is not None:
+        try:
+            streams = session.streams(url)
+            return list(streams.keys())
+        except Exception as e:
+            logger.warning(f"Streamlink API failed to query streams: {e}")
+            return None
+
     try:
         result = subprocess.run(
             ["streamlink", url, "--json"],
@@ -135,6 +168,19 @@ def download_vod(url: str, output_path: Path, quality: str = "worst") -> bool:
         True on success, False on failure
     """
     logger.info(f"Downloading VOD: {url} (quality: {quality})")
+    session = _get_streamlink_session()
+    if session is not None:
+        try:
+            streams = session.streams(url)
+            if not streams:
+                logger.error("Streamlink API returned no streams")
+                return False
+            stream = _select_stream(streams, quality)
+            return _write_stream(stream, output_path)
+        except Exception as e:
+            logger.error(f"Streamlink API download failed: {e}")
+            return False
+
     try:
         result = subprocess.run(
             ["streamlink", url, quality, "--output", str(output_path)],
@@ -173,6 +219,18 @@ def download_vod_with_progress(
         True on success, False on failure
     """
     logger.info(f"Downloading VOD: {url} (quality: {quality})")
+    session = _get_streamlink_session()
+    if session is not None:
+        try:
+            streams = session.streams(url)
+            if not streams:
+                logger.error("Streamlink API returned no streams")
+                return False
+            stream = _select_stream(streams, quality)
+            return _write_stream(stream, output_path, progress_callback=progress_callback)
+        except Exception as e:
+            logger.error(f"Streamlink API download failed: {e}")
+            return False
 
     proc = subprocess.Popen(
         ["streamlink", url, quality, "--output", str(output_path)],
@@ -232,6 +290,67 @@ def download_vod_with_progress(
 
     if proc.returncode != 0:
         logger.error(f"streamlink failed (exit code {proc.returncode})")
+        return False
+
+    if progress_callback:
+        progress_callback(1.0)
+
+    return output_path.exists() and output_path.stat().st_size > 0
+
+
+def _select_stream(streams: dict, quality: str):
+    if quality in streams:
+        return streams[quality]
+    if "best" in streams:
+        return streams["best"]
+    if "worst" in streams:
+        return streams["worst"]
+    return next(iter(streams.values()))
+
+
+def _write_stream(stream, output_path: Path, progress_callback=None) -> bool:
+    import math as _math
+
+    start_time = time.monotonic()
+    last_tick = start_time
+    rate = 0.0
+    last_pct = 0.0
+    bytes_written = 0
+
+    try:
+        with stream.open() as fd, output_path.open("wb") as out:
+            while True:
+                data = fd.read(1024 * 1024)
+                if not data:
+                    break
+                out.write(data)
+                bytes_written += len(data)
+
+                if progress_callback:
+                    now = time.monotonic()
+                    if now - last_tick >= 2:
+                        elapsed = now - start_time
+                        if elapsed > 4 and bytes_written > 0:
+                            instant_rate = bytes_written / elapsed
+                            rate = instant_rate if rate == 0 else rate * 0.7 + instant_rate * 0.3
+
+                        if rate > 0 and bytes_written > 100_000:
+                            expected_total = max(300, 60 + elapsed * 0.5)
+                            pct = min(
+                                _math.log(1 + elapsed / 30) / _math.log(1 + expected_total / 30),
+                                0.95,
+                            )
+                        elif bytes_written > 0:
+                            pct = min(elapsed / 300, 0.10)
+                        else:
+                            pct = min(elapsed / 600, 0.03)
+
+                        pct = max(pct, last_pct)
+                        last_pct = pct
+                        progress_callback(pct)
+                        last_tick = now
+    except Exception as e:
+        logger.error(f"Stream download failed: {e}")
         return False
 
     if progress_callback:

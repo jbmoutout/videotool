@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "videotool"
-version = "0.1.4"
+version = "0.1.5"
 description = "A local, transcript-first CLI tool for extracting topic-focused videos from long multi-topic streams"
 readme = "README.md"
 requires-python = ">=3.9"

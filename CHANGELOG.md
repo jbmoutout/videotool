@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-03-30
+
+### Added
+- Bundle ffmpeg/ffprobe inside the app so the pipeline runs fully standalone
+
+### Changed
+- Twitch VOD downloads now use the Streamlink Python API (no external CLI dependency)
+- CLI command imports are lazy-loaded to avoid PyInstaller crashes on missing ML deps
+- Release workflow now bundles ffmpeg/ffprobe on macOS and Windows
+
+### Fixed
+- App now passes bundled ffmpeg path to the CLI at runtime for reliable media processing
+
 ## [0.1.4] - 2026-03-30
 
 ### Added

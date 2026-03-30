@@ -140,25 +140,41 @@ pub struct BeatsResponse {
 #[tauri::command]
 async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<String>) -> Result<(), String> {
     let cli_path = resolve_cli_path(&app)?;
+    let ffmpeg_path = resolve_bundled_tool_path(&app, "ffmpeg");
 
     // Augment PATH so the subprocess can find ffmpeg/ffprobe regardless of
     // how the app was launched (GUI apps on macOS don't inherit shell PATH).
     let path_env = std::env::var("PATH").unwrap_or_default();
-    let augmented_path = format!(
-        "{}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
-        path_env
-    );
+    let ffmpeg_dir = ffmpeg_path.as_ref().and_then(|p| p.parent())
+        .map(|p| p.to_string_lossy().to_string());
+    let mut path_parts = Vec::new();
+    if let Some(dir) = ffmpeg_dir {
+        path_parts.push(dir);
+    }
+    if !path_env.is_empty() {
+        path_parts.push(path_env);
+    }
+    path_parts.extend([
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+    ].iter().map(|s| s.to_string()));
+    let augmented_path = path_parts.join(":");
 
     eprintln!("[videotool-app] cli_path = {:?}", cli_path);
     eprintln!("[videotool-app] video_path = {:?}", video_path);
     eprintln!("[videotool-app] PATH = {}", augmented_path);
+    if let Some(path) = ffmpeg_path.as_ref() {
+        eprintln!("[videotool-app] ffmpeg_path = {:?}", path);
+    }
 
     let quality_val = quality.unwrap_or_else(|| "worst".to_string());
     let mut cmd = Command::new(&cli_path);
     cmd.args(["beats", &video_path, "--json-progress", "--quality", &quality_val])
         .env("PATH", augmented_path)
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
 
     // Forward proxy config so the bundled Python CLI can reach the API proxy.
@@ -168,11 +184,32 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
     if let Some(token) = get_proxy_auth_token() {
         cmd.env("PROXY_AUTH_TOKEN", token);
     }
+    if let Some(path) = ffmpeg_path {
+        cmd.env("VIDEOTOOL_FFMPEG_PATH", path.to_string_lossy().to_string());
+    }
 
     let mut child = cmd.spawn()
         .map_err(|e| format!("Failed to spawn videotool: {e}"))?;
 
     let stdout = child.stdout.take().ok_or("Could not capture stdout")?;
+    let stderr = child.stderr.take();
+    let last_stderr = Arc::new(Mutex::new(String::new()));
+
+    if let Some(stderr) = stderr {
+        let last_stderr_clone = last_stderr.clone();
+        tokio::spawn(async move {
+            let reader = BufReader::new(stderr);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let line = line.trim().to_string();
+                if line.is_empty() {
+                    continue;
+                }
+                eprintln!("[videotool-app] stderr: {line}");
+                *last_stderr_clone.lock().unwrap() = line;
+            }
+        });
+    }
 
     // Clone the child handle arc so the spawned task owns it directly —
     // avoids borrowing `state` across the async boundary.
@@ -210,8 +247,11 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
             match child.wait().await {
                 Ok(status) if !got_terminal => {
                     // Subprocess ended without emitting done or error — something crashed.
+                    let stderr_line = last_stderr.lock().unwrap().clone();
                     let detail = if !last_non_json.is_empty() {
                         format!(": {}", last_non_json)
+                    } else if !stderr_line.is_empty() {
+                        format!(": {}", stderr_line)
                     } else {
                         String::new()
                     };
@@ -687,8 +727,25 @@ fn resolve_cli_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     if let Ok(resource_path) = app.path().resource_dir() {
         let mut searched_dirs = Vec::new();
         let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        let mut skip_name: Option<String> = None;
 
-        let dirs = [resource_path.clone(), resource_path.join("binaries")];
+        let mut extra_dir: Option<std::path::PathBuf> = None;
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(parent) = exe_path.parent() {
+                extra_dir = Some(parent.to_path_buf());
+            }
+            if let Some(name) = exe_path.file_name().and_then(|n| n.to_str()) {
+                skip_name = Some(name.to_string());
+            }
+        }
+
+        let mut dirs = vec![resource_path.clone(), resource_path.join("binaries")];
+        if let Some(dir) = extra_dir {
+            if !dirs.iter().any(|existing| existing == &dir) {
+                dirs.push(dir);
+            }
+        }
+
         for dir in dirs {
             searched_dirs.push(dir.to_string_lossy().to_string());
             if let Ok(entries) = std::fs::read_dir(&dir) {
@@ -698,6 +755,9 @@ fn resolve_cli_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
                         continue;
                     }
                     let name = entry.file_name().to_string_lossy().to_string();
+                    if skip_name.as_deref() == Some(&name) {
+                        continue;
+                    }
                     let is_exact = name == "videotool" || name == "videotool.exe";
                     let is_prefixed = name.starts_with("videotool-") || name.starts_with("videotool_");
                     if is_exact || is_prefixed {
@@ -760,6 +820,79 @@ fn resolve_cli_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     } else {
         Err("Bundled videotool binary not found (resource_dir unavailable)".to_string())
     }
+}
+
+/// Resolve a bundled tool path (e.g., ffmpeg) from common resource locations.
+fn resolve_bundled_tool_path(app: &AppHandle, base_name: &str) -> Option<std::path::PathBuf> {
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(resource_path) = app.path().resource_dir() {
+        dirs.push(resource_path.clone());
+        dirs.push(resource_path.join("binaries"));
+    }
+
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            let dir = parent.to_path_buf();
+            if !dirs.iter().any(|existing| existing == &dir) {
+                dirs.push(dir);
+            }
+        }
+    }
+
+    if dirs.is_empty() {
+        return None;
+    }
+
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    let exe_name = format!("{base_name}.exe");
+    let prefix_dash = format!("{base_name}-");
+    let prefix_underscore = format!("{base_name}_");
+
+    for dir in dirs {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let name = entry.file_name().to_string_lossy().to_string();
+                let is_exact = name == base_name || name == exe_name;
+                let is_prefixed = name.starts_with(&prefix_dash) || name.starts_with(&prefix_underscore);
+                if is_exact || is_prefixed {
+                    candidates.push(path);
+                }
+            }
+        }
+    }
+
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let arch = std::env::consts::ARCH;
+    candidates.sort_by(|a, b| {
+        let a_name = a.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let b_name = b.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        let a_score = {
+            let mut s = 0;
+            if a_name == base_name || a_name == exe_name { s += 100; }
+            if a_name.contains(arch) { s += 50; }
+            if a_name.starts_with(&prefix_dash) || a_name.starts_with(&prefix_underscore) { s += 10; }
+            s
+        };
+        let b_score = {
+            let mut s = 0;
+            if b_name == base_name || b_name == exe_name { s += 100; }
+            if b_name.contains(arch) { s += 50; }
+            if b_name.starts_with(&prefix_dash) || b_name.starts_with(&prefix_underscore) { s += 10; }
+            s
+        };
+
+        b_score.cmp(&a_score).then_with(|| a_name.cmp(b_name))
+    });
+
+    candidates.into_iter().next()
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

@@ -27,10 +27,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.11"
 
@@ -42,6 +42,21 @@ jobs:
           pip install -e . --no-deps
           pyinstaller videotool.spec
           cp dist/videotool src-tauri/binaries/videotool-${{ matrix.target }}
+
+      - name: Bundle ffmpeg (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            brew install ffmpeg
+          fi
+          ffmpeg_path="$(command -v ffmpeg)"
+          ffprobe_path="$(command -v ffprobe)"
+          if [ -z "$ffmpeg_path" ] || [ -z "$ffprobe_path" ]; then
+            echo "ffmpeg/ffprobe not found after install"
+            exit 1
+          fi
+          cp "$ffmpeg_path" "src-tauri/binaries/ffmpeg-${{ matrix.target }}"
+          cp "$ffprobe_path" "src-tauri/binaries/ffprobe-${{ matrix.target }}"
 
       - name: Install Python dependencies and build CLI binary (Windows)
         if: matrix.platform == 'windows-latest'
@@ -62,8 +77,21 @@ jobs:
         if: matrix.platform == 'windows-latest'
         run: choco install ffmpeg yt-dlp -y
 
+      - name: Bundle ffmpeg (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ffmpeg = (Get-Command ffmpeg).Source
+          $ffprobe = (Get-Command ffprobe).Source
+          if (-not $ffmpeg -or -not $ffprobe) {
+            throw "ffmpeg/ffprobe not found after install"
+          }
+          $target = rustc -Vv | Select-String "host:" | ForEach-Object { $_.Line.Split(" ")[1] }
+          Copy-Item $ffmpeg "src-tauri\\binaries\\ffmpeg-$target.exe"
+          Copy-Item $ffprobe "src-tauri\\binaries\\ffprobe-$target.exe"
+
       - name: Install Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: "20"
           cache: "npm"
@@ -90,3 +118,62 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Verify bundled videotool (macOS)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          set -euo pipefail
+          app_dir=$(ls -d src-tauri/target/release/bundle/macos/*.app 2>/dev/null | head -n 1 || true)
+          if [ -z "$app_dir" ]; then
+            echo "No .app bundle found in src-tauri/target/release/bundle/macos"
+            exit 1
+          fi
+
+          search_dirs=(
+            "$app_dir/Contents/Resources"
+            "$app_dir/Contents/Resources/binaries"
+            "$app_dir/Contents/MacOS"
+          )
+
+          candidates=""
+          for dir in "${search_dirs[@]}"; do
+            if [ -d "$dir" ]; then
+              found=$(find "$dir" -maxdepth 1 -type f \( -name 'videotool' -o -name 'videotool-*' -o -name 'videotool_*' \) ! -name 'videotool-app*' 2>/dev/null || true)
+              if [ -n "$found" ]; then
+                candidates="${candidates}"$'\n'"${found}"
+              fi
+            fi
+          done
+
+          if [ -z "$candidates" ]; then
+            echo "Bundled videotool binary not found in app bundle"
+            exit 1
+          fi
+
+          while IFS= read -r bin; do
+            [ -z "$bin" ] && continue
+            if [ ! -x "$bin" ]; then
+              echo "Bundled binary is not executable: $bin"
+              exit 1
+            fi
+          done <<< "$candidates"
+
+      - name: Verify bundled videotool (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $bundleRoot = "src-tauri/target/release/bundle"
+          if (!(Test-Path $bundleRoot)) {
+            throw "Bundle output not found: $bundleRoot"
+          }
+          $candidateDirs = @("nsis", "msi", "wix", "windows") | ForEach-Object { Join-Path $bundleRoot $_ } | Where-Object { Test-Path $_ }
+          $candidates = @()
+          foreach ($dir in $candidateDirs) {
+            $candidates += Get-ChildItem -Path $dir -Recurse -File -Filter "videotool*.exe" | Where-Object { $_.Name -notlike "videotool-app*" }
+          }
+          if ($candidates.Count -eq 0) {
+            $candidates = Get-ChildItem -Path $bundleRoot -Recurse -File -Filter "videotool*.exe" | Where-Object { $_.Name -notlike "videotool-app*" }
+          }
+          if ($null -eq $candidates -or $candidates.Count -eq 0) {
+            throw "Bundled videotool binary not found in bundle output"
+          }
