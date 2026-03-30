@@ -63,17 +63,26 @@ jobs:
       - name: Bundle ffmpeg (macOS)
         if: matrix.platform == 'macos-latest'
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            brew install ffmpeg
+          # Download statically-linked ffmpeg (Homebrew builds are dynamically linked
+          # and won't work outside the CI runner)
+          if [ "${{ matrix.target }}" = "aarch64-apple-darwin" ]; then
+            FFMPEG_URL="https://www.osxexperts.net/ffmpeg71arm.zip"
+            FFPROBE_URL="https://www.osxexperts.net/ffprobe71arm.zip"
+          else
+            FFMPEG_URL="https://www.osxexperts.net/ffmpeg71intel.zip"
+            FFPROBE_URL="https://www.osxexperts.net/ffprobe71intel.zip"
           fi
-          ffmpeg_path="$(command -v ffmpeg)"
-          ffprobe_path="$(command -v ffprobe)"
-          if [ -z "$ffmpeg_path" ] || [ -z "$ffprobe_path" ]; then
-            echo "ffmpeg/ffprobe not found after install"
-            exit 1
-          fi
-          cp "$ffmpeg_path" "src-tauri/binaries/ffmpeg-${{ matrix.target }}"
-          cp "$ffprobe_path" "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+          echo "Downloading static ffmpeg for ${{ matrix.target }}..."
+          curl -L "$FFMPEG_URL" -o /tmp/ffmpeg.zip
+          curl -L "$FFPROBE_URL" -o /tmp/ffprobe.zip
+          unzip -o /tmp/ffmpeg.zip -d /tmp/ffmpeg_bin
+          unzip -o /tmp/ffprobe.zip -d /tmp/ffprobe_bin
+          cp /tmp/ffmpeg_bin/ffmpeg "src-tauri/binaries/ffmpeg-${{ matrix.target }}"
+          cp /tmp/ffprobe_bin/ffprobe "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+          chmod +x "src-tauri/binaries/ffmpeg-${{ matrix.target }}" "src-tauri/binaries/ffprobe-${{ matrix.target }}"
+          # Verify they're static
+          echo "Checking ffmpeg dependencies:"
+          otool -L "src-tauri/binaries/ffmpeg-${{ matrix.target }}" | head -5
 
       - name: Codesign sidecar binaries (macOS)
         if: matrix.platform == 'macos-latest'
