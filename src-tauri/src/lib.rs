@@ -12,10 +12,12 @@ use tokio_util::io::ReaderStream;
 // ── proxy config ─────────────────────────────────────────────────────────────
 
 /// Proxy URL: runtime env var (dev) takes priority over compile-time value (release).
+/// Filters out empty strings so the Python CLI sees None instead of "".
 fn get_proxy_url() -> Option<String> {
     std::env::var("VITE_API_PROXY_URL")
         .ok()
         .or_else(|| option_env!("VITE_API_PROXY_URL").map(String::from))
+        .filter(|s| !s.is_empty())
 }
 
 /// Proxy auth token: runtime env var (dev) takes priority over compile-time value (release).
@@ -23,6 +25,7 @@ fn get_proxy_auth_token() -> Option<String> {
     std::env::var("PROXY_AUTH_TOKEN")
         .ok()
         .or_else(|| option_env!("PROXY_AUTH_TOKEN").map(String::from))
+        .filter(|s| !s.is_empty())
 }
 
 fn load_env_fallback() {
@@ -250,11 +253,18 @@ async fn start_pipeline(app: AppHandle, video_path: String, quality: Option<Stri
         .kill_on_drop(true);
 
     // Forward proxy config so the bundled Python CLI can reach the API proxy.
-    if let Some(url) = get_proxy_url() {
-        cmd.env("VITE_API_PROXY_URL", url);
+    let proxy_url = get_proxy_url();
+    let proxy_token = get_proxy_auth_token();
+    eprintln!("[videotool-app] proxy_url present: {}, compile-time present: {}, runtime present: {}",
+        proxy_url.is_some(),
+        option_env!("VITE_API_PROXY_URL").is_some(),
+        std::env::var("VITE_API_PROXY_URL").is_ok());
+    if let Some(url) = proxy_url {
+        cmd.env("VITE_API_PROXY_URL", &url);
+        eprintln!("[videotool-app] forwarding VITE_API_PROXY_URL (len={})", url.len());
     }
-    if let Some(token) = get_proxy_auth_token() {
-        cmd.env("PROXY_AUTH_TOKEN", token);
+    if let Some(token) = proxy_token {
+        cmd.env("PROXY_AUTH_TOKEN", &token);
     }
     if let Some(path) = ffmpeg_path {
         cmd.env("VIDEOTOOL_FFMPEG_PATH", path.to_string_lossy().to_string());

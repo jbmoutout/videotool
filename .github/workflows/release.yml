@@ -75,7 +75,22 @@ jobs:
 
       - name: Install Windows dependencies
         if: matrix.platform == 'windows-latest'
-        run: choco install ffmpeg yt-dlp 7zip -y
+        shell: pwsh
+        run: |
+          # Retry helper — Chocolatey CDN can be flaky
+          function Install-ChocoWithRetry($pkg, [int]$maxRetries = 3) {
+            for ($i = 1; $i -le $maxRetries; $i++) {
+              choco install $pkg -y 2>&1
+              if ($LASTEXITCODE -eq 0) { return }
+              Write-Host "Retry $i/$maxRetries for $pkg..."
+              Start-Sleep -Seconds 10
+            }
+            throw "Failed to install $pkg after $maxRetries attempts"
+          }
+          # ffmpeg is critical (bundled into the app)
+          Install-ChocoWithRetry ffmpeg
+          # 7zip is needed for bundle verification step
+          Install-ChocoWithRetry 7zip
 
       - name: Bundle ffmpeg (Windows)
         if: matrix.platform == 'windows-latest'
