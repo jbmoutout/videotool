@@ -56,10 +56,56 @@ export default {
       }
     }
 
+    // ── Event tracking ────────────────────────────────────────────
+    if (path === "/track") {
+      if (!env.RATE_LIMITS) {
+        return jsonResponse({ error: "KV not configured" }, 500);
+      }
+      const event = url.searchParams.get("event");
+      const allowed = ["page_view", "download_mac_arm", "download_mac_x64", "download_win"];
+      if (!event || !allowed.includes(event)) {
+        return jsonResponse({ error: "Invalid event" }, 400);
+      }
+      const today = new Date().toISOString().slice(0, 10);
+      const key = `stats:${event}:${today}`;
+      const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
+      await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 90 * 86400 });
+      return jsonResponse({ ok: true });
+    }
+
+    // ── Stats dashboard ───────────────────────────────────────────
+    if (path === "/stats") {
+      if (!env.RATE_LIMITS) {
+        return jsonResponse({ error: "KV not configured" }, 500);
+      }
+      const days = parseInt(url.searchParams.get("days") || "7", 10);
+      const events = ["page_view", "download_mac_arm", "download_mac_x64", "download_win", "api_groq", "api_anthropic"];
+      const stats = {};
+      for (let i = 0; i < days; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const date = d.toISOString().slice(0, 10);
+        stats[date] = {};
+        for (const event of events) {
+          const val = await env.RATE_LIMITS.get(`stats:${event}:${date}`);
+          if (val) stats[date][event] = parseInt(val, 10);
+        }
+      }
+      return jsonResponse(stats);
+    }
+
     // ── Groq proxy ─────────────────────────────────────────────────
     if (path.startsWith("/groq/")) {
       if (!env.GROQ_API_KEY) {
         return jsonResponse({ error: "GROQ_API_KEY not configured" }, 500);
+      }
+
+      // Track API usage
+      if (env.RATE_LIMITS) {
+        const today = new Date().toISOString().slice(0, 10);
+        const key = `stats:api_groq:${today}`;
+        const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
+        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 90 * 86400 });
       }
 
       const groqPath = path.replace("/groq", "");
@@ -82,6 +128,14 @@ export default {
     if (path.startsWith("/anthropic/")) {
       if (!env.ANTHROPIC_API_KEY) {
         return jsonResponse({ error: "ANTHROPIC_API_KEY not configured" }, 500);
+      }
+
+      // Track API usage
+      if (env.RATE_LIMITS) {
+        const today = new Date().toISOString().slice(0, 10);
+        const key = `stats:api_anthropic:${today}`;
+        const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
+        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 90 * 86400 });
       }
 
       const anthropicPath = path.replace("/anthropic", "");

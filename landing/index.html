@@ -311,6 +311,25 @@
 
 </div>
 <script>
+  // ── Analytics ──────────────────────────────────────────────────
+  const API = 'https://vodtool-api.jbmoutout.workers.dev';
+
+  // Track page view (fire-and-forget beacon)
+  navigator.sendBeacon(API + '/track?event=page_view');
+
+  // Track download clicks
+  document.querySelectorAll('.download-links a').forEach(link => {
+    link.addEventListener('click', () => {
+      const id = link.id;
+      const event = id === 'dl-mac-arm' ? 'download_mac_arm'
+                  : id === 'dl-mac-x64' ? 'download_mac_x64'
+                  : id === 'dl-win'     ? 'download_win'
+                  : null;
+      if (event) navigator.sendBeacon(API + '/track?event=' + event);
+    });
+  });
+
+  // ── Auto-update download links from GitHub releases ───────────
   fetch('https://api.github.com/repos/jbmoutout/videotool/releases/latest')
     .then(r => r.json())
     .then(release => {

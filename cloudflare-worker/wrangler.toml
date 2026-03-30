@@ -11,7 +11,7 @@ RATE_LIMIT_PER_DAY = "20"
 
 [observability]
 [observability.logs]
-enabled = false
+enabled = true
 invocation_logs = true
 
 # KV namespace for IP-based rate limiting.
