@@ -38,7 +38,7 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: |
           pip install pyinstaller
-          pip install -r requirements.lock
+          pip install -r requirements-bundle.lock
           pip install -e . --no-deps
           pyinstaller videotool.spec
           cp dist/videotool src-tauri/binaries/videotool-${{ matrix.target }}
@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           pip install pyinstaller
-          pip install -r requirements.lock
+          pip install -r requirements-bundle.lock
           pip install -e . --no-deps
           pyinstaller videotool.spec
           $target = rustc -Vv | Select-String "host:" | ForEach-Object { $_.Line.Split(" ")[1] }
