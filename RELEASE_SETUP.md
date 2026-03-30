@@ -26,6 +26,7 @@
 - Certificate is valid for **5 years** — set a calendar reminder.
 - App-specific password is **revoked** if you change your Apple ID password — regenerate and update the secret.
 - Tauri handles hardened runtime and entitlements automatically. Custom entitlements (camera, network server) go in `tauri.conf.json` under `bundle > macOS > entitlements`.
+- DMG bundling requires `hdiutil` access. If you run builds in a sandboxed environment, `bundle_dmg.sh` can fail with `hdiutil: create failed - Device not configured`. Run the release build outside the sandbox or in CI with full `hdiutil` access.
 
 ---
 
@@ -57,4 +58,3 @@
   ```
 
 ---
-

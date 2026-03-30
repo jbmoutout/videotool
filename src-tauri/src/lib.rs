@@ -685,14 +685,81 @@ fn cancel_pipeline(app: AppHandle) {
 fn resolve_cli_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     // Release: binary is bundled via tauri.conf.json `externalBin`.
     if let Ok(resource_path) = app.path().resource_dir() {
-        let bundled = resource_path.join("videotool");
-        if bundled.exists() {
-            return Ok(bundled);
+        let mut searched_dirs = Vec::new();
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+
+        let dirs = [resource_path.clone(), resource_path.join("binaries")];
+        for dir in dirs {
+            searched_dirs.push(dir.to_string_lossy().to_string());
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let is_exact = name == "videotool" || name == "videotool.exe";
+                    let is_prefixed = name.starts_with("videotool-") || name.starts_with("videotool_");
+                    if is_exact || is_prefixed {
+                        candidates.push(path);
+                    }
+                }
+            }
         }
+
+        if !candidates.is_empty() {
+            let arch = std::env::consts::ARCH;
+            candidates.sort_by(|a, b| {
+                let a_name = a.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let b_name = b.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+                let a_score = {
+                    let mut s = 0;
+                    if a_name == "videotool" || a_name == "videotool.exe" { s += 100; }
+                    if a_name.contains(arch) { s += 50; }
+                    if a_name.starts_with("videotool-") || a_name.starts_with("videotool_") { s += 10; }
+                    s
+                };
+                let b_score = {
+                    let mut s = 0;
+                    if b_name == "videotool" || b_name == "videotool.exe" { s += 100; }
+                    if b_name.contains(arch) { s += 50; }
+                    if b_name.starts_with("videotool-") || b_name.starts_with("videotool_") { s += 10; }
+                    s
+                };
+
+                b_score.cmp(&a_score).then_with(|| a_name.cmp(b_name))
+            });
+
+            let chosen = candidates.remove(0);
+            if cfg!(debug_assertions) {
+                eprintln!("[videotool-app] resolved cli_path = {:?}", chosen);
+            }
+            return Ok(chosen);
+        }
+
+        if cfg!(debug_assertions) {
+            let fallback = std::path::PathBuf::from("videotool");
+            eprintln!("[videotool-app] resolved cli_path (PATH fallback) = {:?}", fallback);
+            return Ok(fallback);
+        }
+
+        let expected = "videotool, videotool.exe, videotool-<target>, videotool_<target>";
+        return Err(format!(
+            "Bundled videotool binary not found. Searched: {}. Expected one of: {}",
+            searched_dirs.join(", "),
+            expected
+        ));
     }
 
     // Dev fallback: use PATH.
-    Ok(std::path::PathBuf::from("videotool"))
+    if cfg!(debug_assertions) {
+        let fallback = std::path::PathBuf::from("videotool");
+        eprintln!("[videotool-app] resolved cli_path (PATH fallback) = {:?}", fallback);
+        Ok(fallback)
+    } else {
+        Err("Bundled videotool binary not found (resource_dir unavailable)".to_string())
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

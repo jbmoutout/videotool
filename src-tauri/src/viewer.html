@@ -115,7 +115,7 @@ document.getElementById("new-btn").addEventListener("click", () => {
   // Only allow http(s) URLs to prevent javascript: or data: redirects
   try {
     const url = new URL(origin);
-    if (url.protocol === "http:" || url.protocol === "https:") {
+    if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "tauri:") {
       window.location.href = origin;
     }
   } catch (_) { /* invalid URL — ignore */ }
