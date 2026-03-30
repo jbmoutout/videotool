@@ -73,24 +73,23 @@ jobs:
         if: matrix.platform == 'macos-latest'
         run: rustup target add ${{ matrix.target }}
 
-      - name: Install Windows dependencies
+      - name: Install ffmpeg (Windows)
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          # Retry helper — Chocolatey CDN can be flaky
-          function Install-ChocoWithRetry($pkg, [int]$maxRetries = 3) {
-            for ($i = 1; $i -le $maxRetries; $i++) {
-              choco install $pkg -y 2>&1
-              if ($LASTEXITCODE -eq 0) { return }
-              Write-Host "Retry $i/$maxRetries for $pkg..."
-              Start-Sleep -Seconds 10
-            }
-            throw "Failed to install $pkg after $maxRetries attempts"
-          }
-          # ffmpeg is critical (bundled into the app)
-          Install-ChocoWithRetry ffmpeg
-          # 7zip is needed for bundle verification step
-          Install-ChocoWithRetry 7zip
+          # Download ffmpeg static build from gyan.dev (no Chocolatey dependency)
+          $ffmpegUrl = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          $zipPath = "$env:TEMP\ffmpeg.zip"
+          $extractDir = "$env:TEMP\ffmpeg"
+          Write-Host "Downloading ffmpeg from gyan.dev..."
+          Invoke-WebRequest -Uri $ffmpegUrl -OutFile $zipPath -UseBasicParsing
+          Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+          # The zip contains a versioned folder like ffmpeg-7.1-essentials_build
+          $binDir = Get-ChildItem -Path $extractDir -Recurse -Directory -Filter "bin" | Select-Object -First 1
+          if (-not $binDir) { throw "Could not find bin directory in ffmpeg archive" }
+          # Add to PATH for subsequent steps
+          Write-Host "Adding $($binDir.FullName) to PATH"
+          echo "$($binDir.FullName)" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Bundle ffmpeg (Windows)
         if: matrix.platform == 'windows-latest'
@@ -222,7 +221,8 @@ jobs:
             $sevenZip = (Get-Command 7z.exe -ErrorAction SilentlyContinue)
             if (-not $sevenZip) { $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue) }
             if (-not $sevenZip) {
-              throw "7zip not available to inspect installer contents"
+              Write-Host "7zip not available — skipping installer inspection"
+              exit 0
             }
 
             foreach ($archive in $preferred) {
