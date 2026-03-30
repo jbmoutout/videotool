@@ -1,4 +1,4 @@
-# VodTool Limitations
+# VideoTool Limitations
 
 This document tracks known limitations of the current implementation. Items marked **[Planned]** are scheduled for future releases (see TODOS.md for details).
 
@@ -14,7 +14,7 @@ This document tracks known limitations of the current implementation. Items mark
 ### No Project Save/Reload
 - **What:** Stateless workflow - no persistence of intermediate results between commands
 - **Impact:** Must keep terminal session open during multi-step workflow
-- **Workaround:** Use `vodtool pipeline` for end-to-end processing in one command
+- **Workaround:** Use `videotool pipeline` for end-to-end processing in one command
 - **Status:** By design for MVP
 
 ### No Checkpoint/Resume on Failure
@@ -26,7 +26,7 @@ This document tracks known limitations of the current implementation. Items mark
 ### Single-File Processing Only
 - **What:** No batch queue for processing multiple VODs
 - **Impact:** Editors processing 5-10 streams/day must run command for each file
-- **Workaround:** Shell script with loop: `for f in *.mp4; do vodtool pipeline "$f"; done`
+- **Workaround:** Shell script with loop: `for f in *.mp4; do videotool pipeline "$f"; done`
 - **Status:** [Planned] - TODO #4
 
 ---
@@ -93,8 +93,8 @@ This document tracks known limitations of the current implementation. Items mark
 - **Status:** Documented limitation (out of scope for MVP)
 
 ### Concurrent Processing Not Supported
-- **What:** File locking prevents multiple `vodtool` processes on same project
-- **Impact:** Cannot run `vodtool transcribe` and `vodtool diarize` simultaneously
+- **What:** File locking prevents multiple `videotool` processes on same project
+- **Impact:** Cannot run `videotool transcribe` and `videotool diarize` simultaneously
 - **Workaround:** Run commands sequentially (or process different projects in parallel)
 - **Status:** By design (prevents race conditions)
 
@@ -132,7 +132,7 @@ This document tracks known limitations of the current implementation. Items mark
 
 ## Known Bugs
 
-None currently tracked. Report issues at: https://github.com/jbmoutout/vodtool/issues
+None currently tracked. Report issues at: https://github.com/jbmoutout/videotool/issues
 
 ---
 
