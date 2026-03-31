@@ -167,3 +167,12 @@ Thumbs.db
 # Gstack / Claude Code user-specific files
 .gstack/
 .claude/
+
+# Internal planning docs (not for public repo)
+TODOS.md
+00-FRAME.md
+01-ROADMAP.md
+RELEASE_SETUP.md
+LOCAL_LLM_STATUS.md
+docs/history/
+docs/research/
