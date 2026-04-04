@@ -743,5 +743,79 @@ def list_topics(
         raise typer.Exit(code=1)
 
 
+@app.command()
+def share(
+    project_path: Path = typer.Argument(..., help="Path to project directory"),
+):
+    """Upload beats to the web viewer for sharing.
+
+    Uploads beats.json and metadata to the VideoTool web viewer,
+    returning a shareable URL with an embedded Twitch VOD player.
+    """
+    import json
+    import os
+    import urllib.request
+    import urllib.error
+
+    beats_path = project_path / "beats.json"
+    meta_path = project_path / "meta.json"
+
+    if not beats_path.exists():
+        console.print("[red]beats.json not found in project directory[/red]")
+        raise typer.Exit(code=1)
+
+    with beats_path.open("r", encoding="utf-8") as f:
+        beats_data = json.load(f)
+
+    beats = beats_data.get("beats", beats_data) if isinstance(beats_data, dict) else beats_data
+
+    # Read metadata
+    meta = {}
+    if meta_path.exists():
+        with meta_path.open("r", encoding="utf-8") as f:
+            meta = json.load(f)
+
+    proxy_url = os.environ.get("VITE_API_PROXY_URL")
+    auth_token = os.environ.get("PROXY_AUTH_TOKEN")
+
+    if not proxy_url:
+        console.print("[red]VITE_API_PROXY_URL not set. Add it to .env[/red]")
+        raise typer.Exit(code=1)
+
+    payload = {
+        "beats": beats,
+        "title": meta.get("title", project_path.name),
+        "channel": meta.get("channel"),
+        "twitch_video_id": meta.get("twitch_video_id"),
+        "duration_seconds": meta.get("duration_seconds"),
+    }
+
+    share_url = f"{proxy_url.rstrip('/')}/api/share"
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(share_url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if auth_token:
+        req.add_header("X-Proxy-Token", auth_token)
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        url = result.get("url")
+        if not url:
+            console.print("[red]Upload succeeded but server returned no URL[/red]")
+            raise typer.Exit(code=1)
+        console.print(f"\n[green]shared:[/green] {url}\n")
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        console.print(f"[red]Upload failed: {e.code} {body}[/red]")
+        raise typer.Exit(code=1)
+    except urllib.error.URLError as e:
+        console.print(f"[red]Connection error: {e.reason}[/red]")
+        raise typer.Exit(code=1)
+    except (json.JSONDecodeError, ValueError) as e:
+        console.print(f"[red]Invalid response from server: {e}[/red]")
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()

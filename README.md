@@ -45,6 +45,22 @@ videotool llm-beats projects/<id>
 videotool beats path/to/video.mp4 --json-progress
 ```
 
+### Web Viewer (shareable links)
+
+Share your beat timeline as a URL with an embedded Twitch VOD player:
+
+```bash
+# Upload a project's beats to the web viewer
+videotool share ~/.videotool/projects/<id>
+
+# Returns a shareable URL like:
+# https://vodtool-api.<your-worker>.workers.dev/v/c2128a6f
+```
+
+The shared viewer shows the beat timeline synced to the Twitch VOD embed. Works for anyone with the link — no install needed. Links expire after 90 days.
+
+Requires `VITE_API_PROXY_URL` and `PROXY_AUTH_TOKEN` in `.env`.
+
 ### Standalone Beat Viewer (HTML)
 
 For paywalled VODs or local OBS recordings — no install required:
