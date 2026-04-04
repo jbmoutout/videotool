@@ -42,6 +42,11 @@ node_modules/
 .svelte-kit/
 build/
 
+# Cloudflare Worker local dev artifacts
+cloudflare-worker/package.json
+cloudflare-worker/package-lock.json
+cloudflare-worker/.wrangler/
+
 # PyInstaller output
 dist/videotool
 
@@ -176,4 +181,5 @@ RELEASE_SETUP.md
 LOCAL_LLM_STATUS.md
 INTERNAL_DOCS/
 
-/bin
+.spark/
+bin/
