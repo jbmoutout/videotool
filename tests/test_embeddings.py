@@ -24,20 +24,21 @@ class TestOpenAIEmbeddingProvider:
             with pytest.raises(ImportError, match="openai package not installed"):
                 OpenAIEmbeddingProvider()
 
-    def test_embed_empty_list_returns_empty(self, monkeypatch):
+    def test_embed_empty_list_returns_empty(self, monkeypatch, stub_module):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        with mock.patch("openai.OpenAI"):
+        with stub_module("openai", OpenAI=mock.Mock()):
             provider = OpenAIEmbeddingProvider()
         assert provider.embed([]) == []
 
-    def test_embed_calls_api_and_returns_vectors(self, monkeypatch):
+    def test_embed_calls_api_and_returns_vectors(self, monkeypatch, stub_module):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         mock_response = mock.Mock()
         mock_response.data = [
             mock.Mock(embedding=[0.1, 0.2, 0.3]),
             mock.Mock(embedding=[0.4, 0.5, 0.6]),
         ]
-        with mock.patch("openai.OpenAI") as mock_openai_cls:
+        mock_openai_cls = mock.Mock()
+        with stub_module("openai", OpenAI=mock_openai_cls):
             mock_client = mock_openai_cls.return_value
             mock_client.embeddings.create.return_value = mock_response
             provider = OpenAIEmbeddingProvider()
@@ -48,15 +49,16 @@ class TestOpenAIEmbeddingProvider:
             input=["hello", "world"], model="text-embedding-3-small"
         )
 
-    def test_model_name_property(self, monkeypatch):
+    def test_model_name_property(self, monkeypatch, stub_module):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        with mock.patch("openai.OpenAI"):
+        with stub_module("openai", OpenAI=mock.Mock()):
             provider = OpenAIEmbeddingProvider(model="text-embedding-3-large")
         assert provider.model_name == "text-embedding-3-large"
 
-    def test_api_failure_raises(self, monkeypatch):
+    def test_api_failure_raises(self, monkeypatch, stub_module):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        with mock.patch("openai.OpenAI") as mock_openai_cls:
+        mock_openai_cls = mock.Mock()
+        with stub_module("openai", OpenAI=mock_openai_cls):
             mock_client = mock_openai_cls.return_value
             mock_client.embeddings.create.side_effect = Exception("API error")
             provider = OpenAIEmbeddingProvider()
@@ -91,9 +93,9 @@ class TestLocalEmbeddingProvider:
 
 
 class TestGetEmbeddingProvider:
-    def test_openai_provider(self, monkeypatch):
+    def test_openai_provider(self, monkeypatch, stub_module):
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-        with mock.patch("openai.OpenAI"):
+        with stub_module("openai", OpenAI=mock.Mock()):
             provider = get_embedding_provider("openai")
         assert isinstance(provider, OpenAIEmbeddingProvider)
 

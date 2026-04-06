@@ -468,6 +468,7 @@ fn find_video_file(base: &std::path::Path) -> Option<String> {
 
 /// The embedded viewer HTML (auto-loading variant of beat-viewer.html).
 const VIEWER_HTML: &str = include_str!("viewer.html");
+const VIEWER_CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 /// Start a localhost HTTP server that serves the beat viewer, video, and beats.json.
 /// Returns the port number so the frontend can navigate to it.
@@ -489,13 +490,10 @@ async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16,
         project_dir: shared_dir.clone(),
     };
 
-    let cors = tower_http::cors::CorsLayer::permissive();
-
     let router = axum::Router::new()
         .route("/", axum::routing::get(serve_viewer_html))
         .route("/video", axum::routing::get(serve_video))
         .route("/beats.json", axum::routing::get(serve_beats_json))
-        .layer(cors)
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -524,7 +522,13 @@ async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16,
 async fn serve_viewer_html() -> impl IntoResponse {
     (
         StatusCode::OK,
-        [("content-type", "text/html; charset=utf-8")],
+        [
+            ("content-type", "text/html; charset=utf-8"),
+            ("content-security-policy", VIEWER_CSP),
+            ("cross-origin-resource-policy", "same-origin"),
+            ("referrer-policy", "no-referrer"),
+            ("x-content-type-options", "nosniff"),
+        ],
         VIEWER_HTML,
     )
 }
@@ -536,7 +540,12 @@ async fn serve_beats_json(AxumState(state): AxumState<ViewerServerState>) -> imp
     match tokio::fs::read_to_string(&path).await {
         Ok(data) => (
             StatusCode::OK,
-            [("content-type", "application/json")],
+            [
+                ("content-type", "application/json"),
+                ("cache-control", "no-store"),
+                ("cross-origin-resource-policy", "same-origin"),
+                ("x-content-type-options", "nosniff"),
+            ],
             data,
         )
             .into_response(),
@@ -618,8 +627,11 @@ async fn serve_video(
                     .status(StatusCode::PARTIAL_CONTENT)
                     .header("content-type", content_type)
                     .header("accept-ranges", "bytes")
+                    .header("cache-control", "no-store")
                     .header("content-range", content_range)
                     .header("content-length", len_str)
+                    .header("cross-origin-resource-policy", "same-origin")
+                    .header("x-content-type-options", "nosniff")
                     .body(body)
                 {
                     Ok(resp) => resp.into_response(),
@@ -649,7 +661,10 @@ async fn serve_video(
         .status(StatusCode::OK)
         .header("content-type", content_type)
         .header("accept-ranges", "bytes")
+        .header("cache-control", "no-store")
         .header("content-length", len_str)
+        .header("cross-origin-resource-policy", "same-origin")
+        .header("x-content-type-options", "nosniff")
         .body(body)
     {
         Ok(resp) => resp.into_response(),
@@ -981,7 +996,17 @@ fn resolve_bundled_tool_path(app: &AppHandle, base_name: &str) -> Option<std::pa
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{parse_range, serve_beats_json, serve_viewer_html, StatusCode, ViewerServerState, VIEWER_CSP};
+    use axum::extract::State as AxumState;
+    use axum::response::IntoResponse;
+    use std::sync::{Arc, Mutex};
+
+    fn test_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime")
+    }
 
     /// parse_and_emit must not panic on non-UTF8-like garbage input.
     /// In practice the async reader returns an Err for non-UTF8, but parse_and_emit
@@ -1026,6 +1051,66 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_parse_range_supports_standard_and_suffix_forms() {
+        assert_eq!(parse_range("bytes=10-19", 100), Some((10, 19)));
+        assert_eq!(parse_range("bytes=10-", 100), Some((10, 99)));
+        assert_eq!(parse_range("bytes=-10", 100), Some((90, 99)));
+        assert_eq!(parse_range("bytes=200-300", 100), None);
+    }
+
+    #[test]
+    fn test_serve_viewer_html_sets_security_headers() {
+        let response = test_runtime().block_on(async { serve_viewer_html().await.into_response() });
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("content-security-policy").unwrap(),
+            VIEWER_CSP
+        );
+        assert_eq!(
+            response.headers().get("cross-origin-resource-policy").unwrap(),
+            "same-origin"
+        );
+        assert_eq!(response.headers().get("referrer-policy").unwrap(), "no-referrer");
+        assert_eq!(
+            response.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+    }
+
+    #[test]
+    fn test_serve_beats_json_sets_no_store_and_same_origin_headers() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "videotool-beats-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        std::fs::write(temp_dir.join("beats.json"), r#"{"beats":[]}"#).expect("write beats");
+
+        let state = ViewerServerState {
+            project_dir: Arc::new(Mutex::new(temp_dir.to_string_lossy().to_string())),
+        };
+
+        let response = test_runtime().block_on(async {
+            serve_beats_json(AxumState(state)).await.into_response()
+        });
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
+        assert_eq!(
+            response.headers().get("cross-origin-resource-policy").unwrap(),
+            "same-origin"
+        );
+        assert_eq!(
+            response.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+
+        std::fs::remove_file(temp_dir.join("beats.json")).ok();
+        std::fs::remove_dir(temp_dir).ok();
     }
 }
 

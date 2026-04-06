@@ -5,15 +5,10 @@ import logging
 import os
 import time
 from typing import Optional
-
-from dotenv import load_dotenv
 from rich.console import Console
 
 logger = logging.getLogger("videotool")
 console = Console()
-
-# Load environment variables from .env
-load_dotenv()
 
 # API timeout settings
 ANTHROPIC_TIMEOUT = 60  # seconds
@@ -40,8 +35,12 @@ def get_anthropic_client():
         logger.info("Using proxy for Anthropic API")
         headers = {}
         auth_token = os.getenv("PROXY_AUTH_TOKEN")
-        if auth_token:
-            headers["X-Proxy-Token"] = auth_token
+        if not auth_token:
+            raise ValueError(
+                "PROXY_AUTH_TOKEN not set for proxy mode. "
+                "Set PROXY_AUTH_TOKEN in .env alongside VITE_API_PROXY_URL"
+            )
+        headers["X-Proxy-Token"] = auth_token
         return Anthropic(
             api_key="proxy",
             base_url=f"{proxy_url.rstrip('/')}/anthropic",

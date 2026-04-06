@@ -45,6 +45,22 @@ videotool llm-beats projects/<id>
 videotool beats path/to/video.mp4 --json-progress
 ```
 
+### Web Viewer (shareable links)
+
+Share your beat timeline as a URL with an embedded Twitch VOD player:
+
+```bash
+# Upload a project's beats to the web viewer
+videotool share ~/.videotool/projects/<id>
+
+# Returns a shareable URL like:
+# https://vodtool-api.<your-worker>.workers.dev/v/0123456789abcdef0123456789abcdef
+```
+
+The shared viewer shows the beat timeline synced to the Twitch VOD embed. Works for anyone with the link — no install needed. Links expire after 90 days.
+
+Requires `VITE_API_PROXY_URL` and `PROXY_AUTH_TOKEN` in `.env`.
+
 ### Standalone Beat Viewer (HTML)
 
 For paywalled VODs or local OBS recordings — no install required:
@@ -126,6 +142,7 @@ cd cloudflare-worker
 # Set up local dev
 echo "GROQ_API_KEY=your-key" > .dev.vars
 echo "ANTHROPIC_API_KEY=your-key" >> .dev.vars
+echo "PROXY_AUTH_TOKEN=$(openssl rand -hex 16)" >> .dev.vars
 
 # Run locally at http://localhost:8787
 npx wrangler dev
@@ -134,6 +151,7 @@ npx wrangler dev
 npx wrangler deploy
 wrangler secret put GROQ_API_KEY
 wrangler secret put ANTHROPIC_API_KEY
+wrangler secret put PROXY_AUTH_TOKEN
 ```
 
 ## Old Pipeline (topic detection only)
