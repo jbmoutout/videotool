@@ -41,6 +41,15 @@ src-tauri/binaries/videotool*
 node_modules/
 .svelte-kit/
 build/
+.turbo/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Cloudflare Worker local dev artifacts
 cloudflare-worker/package.json
@@ -124,8 +133,14 @@ celerybeat.pid
 
 # Environments
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+.envrc
+.direnv/
+.dev.vars
+.dev.vars.*
+cloudflare-worker/.dev.vars
+cloudflare-worker/.dev.vars.*
 .venv
 env/
 venv/
@@ -139,6 +154,9 @@ venv.bak/
 
 # Rope project settings
 .ropeproject
+.idea/
+*.iml
+*.code-workspace
 
 # mkdocs documentation
 /site
@@ -172,6 +190,7 @@ Thumbs.db
 # Gstack / Claude Code user-specific files
 .gstack/
 .claude/
+.cursor/
 
 # Internal planning docs (not for public repo)
 TODOS.md
@@ -183,3 +202,32 @@ INTERNAL_DOCS/
 
 .spark/
 bin/
+.omx/
+.vscode/
+.fleet/
+.history/
+
+# Local scratch / secret-bearing files
+test_prompt.py
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.mobileprovision
+*.tfstate
+*.tfstate.*
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.orig
+*.rej
+*.local
+*.secret
+*.secrets
+secrets.*
+
+CLAUDE.md

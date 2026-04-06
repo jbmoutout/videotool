@@ -54,7 +54,7 @@ Share your beat timeline as a URL with an embedded Twitch VOD player:
 videotool share ~/.videotool/projects/<id>
 
 # Returns a shareable URL like:
-# https://vodtool-api.<your-worker>.workers.dev/v/c2128a6f
+# https://vodtool-api.<your-worker>.workers.dev/v/0123456789abcdef0123456789abcdef
 ```
 
 The shared viewer shows the beat timeline synced to the Twitch VOD embed. Works for anyone with the link — no install needed. Links expire after 90 days.
@@ -142,6 +142,7 @@ cd cloudflare-worker
 # Set up local dev
 echo "GROQ_API_KEY=your-key" > .dev.vars
 echo "ANTHROPIC_API_KEY=your-key" >> .dev.vars
+echo "PROXY_AUTH_TOKEN=$(openssl rand -hex 16)" >> .dev.vars
 
 # Run locally at http://localhost:8787
 npx wrangler dev
@@ -150,6 +151,7 @@ npx wrangler dev
 npx wrangler deploy
 wrangler secret put GROQ_API_KEY
 wrangler secret put ANTHROPIC_API_KEY
+wrangler secret put PROXY_AUTH_TOKEN
 ```
 
 ## Old Pipeline (topic detection only)

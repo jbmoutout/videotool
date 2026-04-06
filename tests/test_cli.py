@@ -660,3 +660,70 @@ class TestProgressContract:
         assert isinstance(error["error"], str)
         assert isinstance(error["step"], int)
         assert len(error["error"]) > 0
+
+
+class TestShareCommand:
+    """Tests for the share command."""
+
+    def test_requires_proxy_auth_token(self, tmp_path, monkeypatch):
+        """Share upload refuses to run without the proxy auth token."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "beats.json").write_text('{"beats":[]}')
+
+        monkeypatch.setenv("VITE_API_PROXY_URL", "https://example.com")
+        monkeypatch.delenv("PROXY_AUTH_TOKEN", raising=False)
+
+        with mock.patch("videotool.cli._load_cli_env"):
+            result = runner.invoke(app, ["share", str(project)])
+
+        assert result.exit_code == 1
+        assert "PROXY_AUTH_TOKEN not set" in result.stdout
+
+    def test_posts_payload_with_proxy_auth_header(self, tmp_path, monkeypatch):
+        """Share upload sends the auth token and serialized beat payload."""
+        project = tmp_path / "project"
+        project.mkdir()
+        (project / "beats.json").write_text(
+            json.dumps({
+                "beats": [
+                    {
+                        "topic_id": "topic_0000",
+                        "topic_label": "Intro",
+                        "beats": [{"type": "highlight", "start_s": 0, "end_s": 30, "label": "hook"}],
+                    },
+                ],
+            })
+        )
+        (project / "meta.json").write_text(
+            json.dumps({
+                "title": "Demo",
+                "channel": "Channel",
+                "twitch_video_id": "12345",
+                "duration_seconds": 60,
+            })
+        )
+
+        monkeypatch.setenv("VITE_API_PROXY_URL", "https://example.com")
+        monkeypatch.setenv("PROXY_AUTH_TOKEN", "secret-token")
+
+        response = mock.MagicMock()
+        response.read.return_value = b'{"url":"https://example.com/v/0123456789abcdef0123456789abcdef"}'
+        context = mock.MagicMock()
+        context.__enter__.return_value = response
+        context.__exit__.return_value = False
+
+        with mock.patch("videotool.cli._load_cli_env"), \
+             mock.patch("urllib.request.urlopen", return_value=context) as mock_urlopen:
+            result = runner.invoke(app, ["share", str(project)])
+
+        assert result.exit_code == 0
+        request = mock_urlopen.call_args.args[0]
+        assert request.full_url == "https://example.com/api/share"
+        assert request.get_header("X-proxy-token") == "secret-token"
+
+        payload = json.loads(request.data.decode("utf-8"))
+        assert payload["title"] == "Demo"
+        assert payload["channel"] == "Channel"
+        assert payload["twitch_video_id"] == "12345"
+        assert payload["duration_seconds"] == 60

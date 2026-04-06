@@ -9,47 +9,62 @@
  * Secrets: wrangler secret put GROQ_API_KEY && wrangler secret put ANTHROPIC_API_KEY && wrangler secret put PROXY_AUTH_TOKEN
  */
 
-// NOTE: CORS is permissive by design — this is a public API proxy for VideoTool
-// desktop/web clients. Auth token + rate limiting are the abuse controls.
-const CORS_HEADERS = {
+// Public CORS is only needed for the landing site's analytics/stats pages.
+// Sensitive proxy/share endpoints are intentionally not cross-origin accessible.
+const PUBLIC_CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key, anthropic-version, X-Proxy-Token",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
+
+const MAX_SHARE_BYTES = 1024 * 1024;
+const SHARE_ID_LENGTH = 32;
+const SHARE_TTL_SECONDS = 90 * 86400;
+const STATS_MAX_DAYS = 30;
 
 export default {
   async fetch(request, env) {
-    // Handle CORS preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS });
-    }
-
     const url = new URL(request.url);
     const path = url.pathname;
+
+    // Handle CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: isPublicCorsPath(path) ? PUBLIC_CORS_HEADERS : {},
+      });
+    }
 
     // ── Event tracking (before rate limiter) ───────────────────────
     if (path === "/track") {
       if (!env.RATE_LIMITS) {
-        return jsonResponse({ error: "KV not configured" }, 500);
+        return publicJsonResponse({ error: "KV not configured" }, 500);
       }
       const event = url.searchParams.get("event");
       const allowed = ["page_view", "download_mac_arm", "download_mac_x64", "download_win"];
       if (!event || !allowed.includes(event)) {
-        return jsonResponse({ error: "Invalid event" }, 400);
+        return publicJsonResponse({ error: "Invalid event" }, 400);
       }
       const today = new Date().toISOString().slice(0, 10);
       const key = `stats:${event}:${today}`;
       const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
-      await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 90 * 86400 });
-      return jsonResponse({ ok: true });
+      await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: SHARE_TTL_SECONDS });
+      return publicJsonResponse({ ok: true });
     }
 
     // ── Stats dashboard ───────────────────────────────────────────
     if (path === "/stats") {
       if (!env.RATE_LIMITS) {
-        return jsonResponse({ error: "KV not configured" }, 500);
+        return publicJsonResponse({ error: "KV not configured" }, 500);
       }
-      const days = parseInt(url.searchParams.get("days") || "7", 10);
+      const rawDays = parseInt(url.searchParams.get("days") || "7", 10);
+      if (Number.isNaN(rawDays) || rawDays < 1 || rawDays > STATS_MAX_DAYS) {
+        return publicJsonResponse(
+          { error: `days must be an integer between 1 and ${STATS_MAX_DAYS}` },
+          400,
+        );
+      }
+      const days = rawDays;
       const events = ["page_view", "download_mac_arm", "download_mac_x64", "download_win", "api_groq", "api_anthropic"];
       const stats = {};
       for (let i = 0; i < days; i++) {
@@ -62,33 +77,26 @@ export default {
           if (val) stats[date][event] = parseInt(val, 10);
         }
       }
-      return jsonResponse(stats);
+      return publicJsonResponse(stats);
     }
 
     // Authenticate proxy requests with a shared token (stored as CF secret).
     if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
-      if (env.PROXY_AUTH_TOKEN) {
-        const token = request.headers.get("X-Proxy-Token");
-        if (token !== env.PROXY_AUTH_TOKEN) {
-          return jsonResponse({ error: "Unauthorized" }, 401);
-        }
+      const authError = requireProxyAuth(request, env);
+      if (authError) {
+        return authError;
       }
     }
 
-    // Simple IP-based rate limiting via KV (if bound) — otherwise skip
-    if (env.RATE_LIMITS) {
-      const ip = request.headers.get("cf-connecting-ip") || "unknown";
-      const today = new Date().toISOString().slice(0, 10);
-      const key = `ratelimit:${ip}:${today}`;
-      const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
-      const limit = parseInt(env.RATE_LIMIT_PER_DAY || "10", 10);
-
-      if (count >= limit) {
-        return jsonResponse({ error: "Daily limit reached. Try again tomorrow." }, 429);
-      }
-
-      if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
-        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 86400 });
+    if (path.startsWith("/groq/") || path.startsWith("/anthropic/")) {
+      const rateLimitError = await enforceRateLimit(env, request, {
+        bucket: "proxy",
+        limit: parseInt(env.RATE_LIMIT_PER_DAY || "10", 10),
+        windowSeconds: 86400,
+        message: "Daily limit reached. Try again tomorrow.",
+      });
+      if (rateLimitError) {
+        return rateLimitError;
       }
     }
 
@@ -103,7 +111,7 @@ export default {
         const today = new Date().toISOString().slice(0, 10);
         const key = `stats:api_groq:${today}`;
         const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
-        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 90 * 86400 });
+        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: SHARE_TTL_SECONDS });
       }
 
       const groqPath = path.replace("/groq", "");
@@ -119,7 +127,7 @@ export default {
         body: request.body,
       });
 
-      return addCorsHeaders(response);
+      return response;
     }
 
     // ── Anthropic proxy ────────────────────────────────────────────
@@ -133,7 +141,7 @@ export default {
         const today = new Date().toISOString().slice(0, 10);
         const key = `stats:api_anthropic:${today}`;
         const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
-        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: 90 * 86400 });
+        await env.RATE_LIMITS.put(key, String(count + 1), { expirationTtl: SHARE_TTL_SECONDS });
       }
 
       const anthropicPath = path.replace("/anthropic", "");
@@ -150,7 +158,7 @@ export default {
         body: request.body,
       });
 
-      return addCorsHeaders(response);
+      return response;
     }
 
     // ── Share: upload beats ──────────────────────────────────────────
@@ -158,23 +166,29 @@ export default {
       if (!env.RATE_LIMITS) {
         return jsonResponse({ error: "KV not configured" }, 500);
       }
-      // Auth: same token as proxy routes
-      if (env.PROXY_AUTH_TOKEN) {
-        const token = request.headers.get("X-Proxy-Token");
-        if (token !== env.PROXY_AUTH_TOKEN) {
-          return jsonResponse({ error: "Unauthorized" }, 401);
-        }
+      const authError = requireProxyAuth(request, env);
+      if (authError) {
+        return authError;
+      }
+      const rateLimitError = await enforceRateLimit(env, request, {
+        bucket: "share-write",
+        limit: parseInt(env.SHARE_WRITE_LIMIT_PER_HOUR || "20", 10),
+        windowSeconds: 3600,
+        message: "Share upload limit reached. Try again later.",
+      });
+      if (rateLimitError) {
+        return rateLimitError;
       }
       try {
         const contentLength = parseInt(request.headers.get("Content-Length") || "0", 10);
-        if (contentLength > 1024 * 1024) {
+        if (contentLength > MAX_SHARE_BYTES) {
           return jsonResponse({ error: "Payload too large (max 1MB)" }, 413);
         }
-        const body = await request.json();
+        const body = await readJsonBodyLimited(request, MAX_SHARE_BYTES);
         if (!body.beats || !Array.isArray(body.beats)) {
           return jsonResponse({ error: "Missing or invalid beats array" }, 400);
         }
-        const id = crypto.randomUUID().slice(0, 8);
+        const id = await generateUniqueShareId(env);
         // Sanitize twitch_video_id to digits only (Twitch IDs are numeric)
         let twitchId = null;
         if (body.twitch_video_id && /^\d+$/.test(String(body.twitch_video_id))) {
@@ -189,12 +203,18 @@ export default {
           created_at: new Date().toISOString(),
         };
         await env.RATE_LIMITS.put(`share:${id}`, JSON.stringify(record), {
-          expirationTtl: 90 * 86400,
+          expirationTtl: SHARE_TTL_SECONDS,
         });
         const baseUrl = new URL(request.url);
         const viewerUrl = `${baseUrl.protocol}//${baseUrl.host}/v/${id}`;
         return jsonResponse({ id, url: viewerUrl });
       } catch (err) {
+        if (err instanceof Error && err.message === "PAYLOAD_TOO_LARGE") {
+          return jsonResponse({ error: "Payload too large (max 1MB)" }, 413);
+        }
+        if (err instanceof Error && err.message === "SHARE_ID_COLLISION") {
+          return jsonResponse({ error: "Failed to allocate share ID" }, 503);
+        }
         return jsonResponse({ error: "Invalid JSON body" }, 400);
       }
     }
@@ -204,8 +224,12 @@ export default {
       if (!env.RATE_LIMITS) {
         return jsonResponse({ error: "KV not configured" }, 500);
       }
+      const authError = requireProxyAuth(request, env);
+      if (authError) {
+        return authError;
+      }
       const id = path.replace("/api/share/", "");
-      if (!/^[a-f0-9]{8}$/.test(id)) {
+      if (!isValidShareId(id)) {
         return jsonResponse({ error: "Invalid share ID" }, 400);
       }
       const data = await env.RATE_LIMITS.get(`share:${id}`);
@@ -220,8 +244,17 @@ export default {
       if (!env.RATE_LIMITS) {
         return jsonResponse({ error: "KV not configured" }, 500);
       }
+      const rateLimitError = await enforceRateLimit(env, request, {
+        bucket: "share-read",
+        limit: parseInt(env.SHARE_READ_LIMIT_PER_HOUR || "240", 10),
+        windowSeconds: 3600,
+        message: "Share view limit reached. Try again later.",
+      });
+      if (rateLimitError) {
+        return rateLimitError;
+      }
       const id = path.replace("/v/", "");
-      if (!/^[a-f0-9]{8}$/.test(id)) {
+      if (!isValidShareId(id)) {
         return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain" } });
       }
       const data = await env.RATE_LIMITS.get(`share:${id}`);
@@ -233,7 +266,12 @@ export default {
       const html = buildViewerHtml(record, hostname);
       return new Response(html, {
         status: 200,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": buildViewerCsp(),
+          "Referrer-Policy": "no-referrer",
+          "X-Content-Type-Options": "nosniff",
+        },
       });
     }
 
@@ -246,20 +284,121 @@ export default {
   },
 };
 
-function jsonResponse(data, status = 200) {
+function isPublicCorsPath(path) {
+  return path === "/track" || path === "/stats";
+}
+
+function jsonResponse(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+    headers: { "Content-Type": "application/json", ...extraHeaders },
   });
 }
 
-function addCorsHeaders(response) {
-  const newResponse = new Response(response.body, response);
-  for (const [key, value] of Object.entries(CORS_HEADERS)) {
-    newResponse.headers.set(key, value);
-  }
-  return newResponse;
+function publicJsonResponse(data, status = 200) {
+  return jsonResponse(data, status, PUBLIC_CORS_HEADERS);
 }
+
+function requireProxyAuth(request, env) {
+  if (!env.PROXY_AUTH_TOKEN) {
+    return jsonResponse({ error: "PROXY_AUTH_TOKEN not configured" }, 500);
+  }
+  const token = request.headers.get("X-Proxy-Token");
+  if (token !== env.PROXY_AUTH_TOKEN) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  return null;
+}
+
+async function enforceRateLimit(env, request, { bucket, limit, windowSeconds, message }) {
+  if (!env.RATE_LIMITS) {
+    return null;
+  }
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const window = Math.floor(Date.now() / (windowSeconds * 1000));
+  const key = `ratelimit:${bucket}:${ip}:${window}`;
+  const count = parseInt(await env.RATE_LIMITS.get(key) || "0", 10);
+  if (count >= limit) {
+    return jsonResponse({ error: message }, 429);
+  }
+  await env.RATE_LIMITS.put(key, String(count + 1), {
+    expirationTtl: windowSeconds + 60,
+  });
+  return null;
+}
+
+function isValidShareId(id) {
+  return new RegExp(`^[a-f0-9]{${SHARE_ID_LENGTH}}$`).test(id);
+}
+
+async function generateUniqueShareId(env) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const id = crypto.randomUUID().replace(/-/g, "");
+    const existing = await env.RATE_LIMITS.get(`share:${id}`);
+    if (!existing) {
+      return id;
+    }
+  }
+  throw new Error("SHARE_ID_COLLISION");
+}
+
+async function readJsonBodyLimited(request, maxBytes) {
+  if (!request.body) {
+    throw new Error("INVALID_JSON");
+  }
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > maxBytes) {
+      throw new Error("PAYLOAD_TOO_LARGE");
+    }
+    chunks.push(value);
+  }
+
+  const bodyBytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bodyBytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return JSON.parse(new TextDecoder().decode(bodyBytes));
+  } catch {
+    throw new Error("INVALID_JSON");
+  }
+}
+
+function buildViewerCsp() {
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://player.twitch.tv",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "frame-src https://player.twitch.tv https://www.twitch.tv",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
+export {
+  buildViewerCsp,
+  enforceRateLimit,
+  generateUniqueShareId,
+  isValidShareId,
+  readJsonBodyLimited,
+  requireProxyAuth,
+};
 
 // ── Web viewer HTML template ──────────────────────────────────────
 
@@ -581,4 +720,3 @@ function fmtTime(s) {
 </body>
 </html>`;
 }
-

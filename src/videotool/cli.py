@@ -8,10 +8,8 @@ import typer
 
 try:
     from dotenv import load_dotenv
-
-    load_dotenv()
 except ImportError:
-    pass
+    load_dotenv = None
 from rich.console import Console
 
 from videotool import __version__
@@ -23,6 +21,77 @@ app = typer.Typer(
 )
 console = Console()
 logger = logging.getLogger("videotool")
+
+
+def _load_cli_env() -> None:
+    """Load local .env variables when the CLI actually runs."""
+    if load_dotenv is not None:
+        load_dotenv()
+
+
+def ingest_video(*args, **kwargs):
+    from videotool.commands.ingest import ingest_video as _ingest_video
+    return _ingest_video(*args, **kwargs)
+
+
+def get_ingest_last_error():
+    from videotool.commands.ingest import get_last_error as _get_last_error
+    return _get_last_error()
+
+
+def transcribe_audio(*args, **kwargs):
+    from videotool.commands.transcribe import transcribe_audio as _transcribe_audio
+    return _transcribe_audio(*args, **kwargs)
+
+
+def get_transcribe_last_error():
+    from videotool.commands.transcribe import get_last_error as _get_last_error
+    return _get_last_error()
+
+
+def create_chunks(*args, **kwargs):
+    from videotool.commands.chunks import create_chunks as _create_chunks
+    return _create_chunks(*args, **kwargs)
+
+
+def get_chunks_last_error():
+    from videotool.commands.chunks import get_last_error as _get_last_error
+    return _get_last_error()
+
+
+def embed_chunks(*args, **kwargs):
+    from videotool.commands.embed import embed_chunks as _embed_chunks
+    return _embed_chunks(*args, **kwargs)
+
+
+def get_embed_last_error():
+    from videotool.commands.embed import get_last_error as _get_last_error
+    return _get_last_error()
+
+
+def llm_topics(*args, **kwargs):
+    from videotool.commands.llm_topics import llm_topics as _llm_topics
+    return _llm_topics(*args, **kwargs)
+
+
+def get_llm_last_error():
+    from videotool.commands.llm_topics import get_last_error as _get_last_error
+    return _get_last_error()
+
+
+def detect_beats(*args, **kwargs):
+    from videotool.commands.llm_beats import detect_beats as _detect_beats
+    return _detect_beats(*args, **kwargs)
+
+
+def get_beats_last_error():
+    from videotool.commands.llm_beats import get_last_error as _get_last_error
+    return _get_last_error()
+
+
+def export_video(*args, **kwargs):
+    from videotool.commands.export import export_video as _export_video
+    return _export_video(*args, **kwargs)
 
 
 def version_callback(value: bool):
@@ -50,6 +119,7 @@ def main(
     ),
 ):
     """VideoTool: Extract topic-focused videos from long multi-topic streams."""
+    _load_cli_env()
     if verbose:
         logger.setLevel(logging.DEBUG)
         logger.debug("Verbose logging enabled")
@@ -73,7 +143,6 @@ def ingest(
     Creates a project folder with extracted audio and metadata.
     Accepts a local file path or a Twitch URL (https://twitch.tv/videos/<id>).
     """
-    from videotool.commands.ingest import ingest_video
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
     project_dir = ingest_video(input_video_path, ffmpeg_path, quality=quality)
     if project_dir is None:
@@ -106,7 +175,6 @@ def transcribe(
     Generates timestamped transcript from project audio.
     Default provider is Groq (whisper-large-v3-turbo) — ~10-20x faster than OpenAI.
     """
-    from videotool.commands.transcribe import transcribe_audio
     transcript_path = transcribe_audio(project_path, model, force, language, provider)
     if transcript_path is None:
         raise typer.Exit(code=1)
@@ -121,7 +189,6 @@ def chunks(
 
     Creates 5-25 second chunks for embedding.
     """
-    from videotool.commands.chunks import create_chunks
     chunks_path = create_chunks(project_path)
     if chunks_path is None:
         raise typer.Exit(code=1)
@@ -147,7 +214,6 @@ def embed(
     Uses OpenAI text-embedding-3-small by default (requires OPENAI_API_KEY).
     Use --provider local for offline sentence-transformers.
     """
-    from videotool.commands.embed import embed_chunks
     db_path = embed_chunks(project_path, provider, model)
     if db_path is None:
         raise typer.Exit(code=1)
@@ -264,7 +330,6 @@ def export(
 
     Generates final topic-focused video with preview.
     """
-    from videotool.commands.export import export_video
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
     export_path = export_video(project_path, ffmpeg_path)
     if export_path is None:
@@ -287,11 +352,6 @@ def _run_ingest_and_transcribe(
     """
     import json as _json
     import sys
-    from videotool.commands.ingest import get_last_error as get_ingest_error
-    from videotool.commands.ingest import ingest_video
-    from videotool.commands.transcribe import get_last_error as get_transcribe_error
-    from videotool.commands.transcribe import transcribe_audio
-
     ffmpeg_path = app.state.get("ffmpeg_path", "ffmpeg")
 
     def progress(step: int, msg: str):
@@ -356,7 +416,7 @@ def _run_ingest_and_transcribe(
         status_callback=_ingest_status if json_progress else None,
     )
     if project_dir is None:
-        fail(1, get_ingest_error() or "Ingest failed")
+        fail(1, get_ingest_last_error() or "Ingest failed")
 
     # Use language from Twitch metadata if not explicitly provided
     if language is None:
@@ -375,7 +435,7 @@ def _run_ingest_and_transcribe(
         project_dir, whisper_model, False, language, transcription_provider
     )
     if transcript_path is None:
-        fail(2, get_transcribe_error() or "Transcription failed")
+        fail(2, get_transcribe_last_error() or "Transcription failed")
 
     return project_dir, progress, fail
 
@@ -416,9 +476,6 @@ def beats(
     """
     import json as _json
     import sys
-    from videotool.commands.llm_beats import detect_beats
-    from videotool.commands.llm_beats import get_last_error as get_beats_error
-
     total = 3
 
     project_dir, progress, fail = _run_ingest_and_transcribe(
@@ -433,7 +490,7 @@ def beats(
     progress(3, "Analyzing narrative structure...")
     beats_path = detect_beats(project_dir, json_progress=json_progress)
     if beats_path is None:
-        fail(3, get_beats_error() or "Beat detection failed")
+        fail(3, get_beats_last_error() or "Beat detection failed")
 
     try:
         beats_data = _json.loads(beats_path.read_text())
@@ -510,13 +567,6 @@ def pipeline(
     """
     import json as _json
     import sys
-    from videotool.commands.chunks import create_chunks
-    from videotool.commands.chunks import get_last_error as get_chunks_error
-    from videotool.commands.embed import embed_chunks
-    from videotool.commands.embed import get_last_error as get_embed_error
-    from videotool.commands.llm_topics import get_last_error as get_llm_error
-    from videotool.commands.llm_topics import llm_topics
-
     total = 5
 
     project_dir, progress, fail = _run_ingest_and_transcribe(
@@ -531,19 +581,19 @@ def pipeline(
     progress(3, "Creating semantic chunks...")
     chunks_path = create_chunks(project_dir)
     if chunks_path is None:
-        fail(3, get_chunks_error() or "Chunking failed")
+        fail(3, get_chunks_last_error() or "Chunking failed")
 
     # Step 4: Embed
     progress(4, "Generating embeddings...")
     db_path = embed_chunks(project_dir)
     if db_path is None:
-        fail(4, get_embed_error() or "Embedding failed")
+        fail(4, get_embed_last_error() or "Embedding failed")
 
     # Step 5: LLM topic detection (replaces segment-topics + topics + label-topics)
     progress(5, "Detecting topics...")
     topic_map_path = llm_topics(project_dir, max_topics, provider, model)
     if topic_map_path is None:
-        fail(5, get_llm_error() or "LLM topic detection failed")
+        fail(5, get_llm_last_error() or "LLM topic detection failed")
 
     if json_progress:
         try:
@@ -575,7 +625,6 @@ def llm_beats_cmd(
     Runs only the LLM beat detection step (no ingest, no transcribe).
     Requires transcript_raw.json in the project directory.
     """
-    from videotool.commands.llm_beats import detect_beats
     result = detect_beats(project_path)
     if result is None:
         raise typer.Exit(code=1)
@@ -662,7 +711,6 @@ def llm_topics_cmd(
 
     Analyzes chunks directly with LLM and returns structured topic list.
     """
-    from videotool.commands.llm_topics import llm_topics
     result = llm_topics(project_path, max_topics, provider, model)
     if result is None:
         raise typer.Exit(code=1)
@@ -781,6 +829,9 @@ def share(
     if not proxy_url:
         console.print("[red]VITE_API_PROXY_URL not set. Add it to .env[/red]")
         raise typer.Exit(code=1)
+    if not auth_token:
+        console.print("[red]PROXY_AUTH_TOKEN not set. Add it to .env[/red]")
+        raise typer.Exit(code=1)
 
     payload = {
         "beats": beats,
@@ -794,8 +845,7 @@ def share(
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(share_url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
-    if auth_token:
-        req.add_header("X-Proxy-Token", auth_token)
+    req.add_header("X-Proxy-Token", auth_token)
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:

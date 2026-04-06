@@ -1,8 +1,12 @@
 """Shared test fixtures for VideoTool test suite."""
 
 import json
+import sys
 import tempfile
+import types
+from contextlib import contextmanager
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -57,3 +61,18 @@ def corrupted_json_file(temp_dir):
     json_path = temp_dir / "corrupted.json"
     json_path.write_text("{invalid json")
     return json_path
+
+
+@pytest.fixture
+def stub_module():
+    """Temporarily inject a minimal module into sys.modules."""
+
+    @contextmanager
+    def _stub_module(name: str, **attrs):
+        module = types.ModuleType(name)
+        for attr_name, value in attrs.items():
+            setattr(module, attr_name, value)
+        with mock.patch.dict(sys.modules, {name: module}):
+            yield module
+
+    return _stub_module

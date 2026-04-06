@@ -28,16 +28,18 @@ class TestGetAnthropicClient:
     def test_raises_value_error_if_api_key_missing(self, monkeypatch):
         """Raises ValueError if ANTHROPIC_API_KEY not set."""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("VITE_API_PROXY_URL", raising=False)
+        monkeypatch.delenv("PROXY_AUTH_TOKEN", raising=False)
 
         with pytest.raises(ValueError, match="ANTHROPIC_API_KEY not set"):
             get_anthropic_client()
 
-    def test_returns_client_with_valid_api_key(self, monkeypatch):
+    def test_returns_client_with_valid_api_key(self, monkeypatch, stub_module):
         """Returns Anthropic client when API key is set."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-api-key-123")
 
-        # Patch where Anthropic is imported (inside the function)
-        with mock.patch("anthropic.Anthropic") as mock_anthropic:
+        mock_anthropic = mock.Mock()
+        with stub_module("anthropic", Anthropic=mock_anthropic):
             client = get_anthropic_client()
             mock_anthropic.assert_called_once_with(api_key="test-api-key-123")
             assert client == mock_anthropic.return_value
@@ -52,20 +54,20 @@ class TestGetOllamaClient:
             with pytest.raises(ImportError, match="openai package not installed"):
                 get_ollama_client()
 
-    def test_raises_connection_error_if_ollama_not_running(self):
+    def test_raises_connection_error_if_ollama_not_running(self, stub_module):
         """Raises ConnectionError if Ollama server not accessible."""
-        # Patch where OpenAI is imported (inside the function)
-        with mock.patch("openai.OpenAI") as mock_openai:
+        mock_openai = mock.Mock()
+        with stub_module("openai", OpenAI=mock_openai):
             mock_client = mock_openai.return_value
             mock_client.models.retrieve.side_effect = Exception("Connection refused")
 
             with pytest.raises(ConnectionError, match="Ollama not running"):
                 get_ollama_client("qwen2.5:3b")
 
-    def test_returns_client_when_ollama_accessible(self):
+    def test_returns_client_when_ollama_accessible(self, stub_module):
         """Returns OpenAI client configured for Ollama when server is running."""
-        # Patch where OpenAI is imported (inside the function)
-        with mock.patch("openai.OpenAI") as mock_openai:
+        mock_openai = mock.Mock()
+        with stub_module("openai", OpenAI=mock_openai):
             mock_client = mock_openai.return_value
             mock_client.models.retrieve.return_value = {"id": "qwen2.5:3b"}
 

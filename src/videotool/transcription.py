@@ -198,8 +198,12 @@ class GroqTranscriptionProvider(_WhisperAPIBase):
             base_url = f"{proxy_url.rstrip('/')}/groq"
             logger.info("Using proxy for Groq transcription")
             auth_token = os.environ.get("PROXY_AUTH_TOKEN")
-            if auth_token:
-                extra_headers["X-Proxy-Token"] = auth_token
+            if not auth_token:
+                raise ValueError(
+                    "PROXY_AUTH_TOKEN not set for proxy mode. "
+                    "Set PROXY_AUTH_TOKEN in .env alongside VITE_API_PROXY_URL"
+                )
+            extra_headers["X-Proxy-Token"] = auth_token
         self._client = openai.OpenAI(
             api_key=api_key or "proxy",
             base_url=base_url,
