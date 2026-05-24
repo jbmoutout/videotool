@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::types::{DoneMsg, ErrorMsg, ProgressMsg};
 
-pub fn parse_and_emit(app: &AppHandle, line: &str, last_non_json: &mut String) -> bool {
+pub(crate) fn parse_and_emit(app: &AppHandle, line: &str, last_non_json: &mut String) -> bool {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
         eprintln!("[videotool-app] subprocess: {line}");
         *last_non_json = line.to_string();

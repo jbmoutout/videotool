@@ -53,7 +53,7 @@ pub struct BeatTopic {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct BeatsFile {
+pub(crate) struct BeatsFile {
     pub beats: Vec<BeatTopic>,
 }
 

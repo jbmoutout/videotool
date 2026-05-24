@@ -13,7 +13,7 @@ use crate::types::{
 };
 
 #[tauri::command]
-async fn start_pipeline(
+pub(crate) async fn start_pipeline(
     app: AppHandle,
     video_path: String,
     quality: Option<String>,
@@ -175,7 +175,7 @@ async fn start_pipeline(
 }
 
 #[tauri::command]
-fn load_topics(project_dir: String) -> Result<Vec<TopicEntry>, String> {
+pub(crate) fn load_topics(project_dir: String) -> Result<Vec<TopicEntry>, String> {
     let base = std::path::Path::new(&project_dir);
     let candidates = ["topic_map_llm.json", "topic_map_labeled.json", "topic_map.json"];
 
@@ -194,7 +194,7 @@ fn load_topics(project_dir: String) -> Result<Vec<TopicEntry>, String> {
 }
 
 #[tauri::command]
-fn load_beats(project_dir: String) -> Result<BeatsResponse, String> {
+pub(crate) fn load_beats(project_dir: String) -> Result<BeatsResponse, String> {
     let base = std::path::Path::new(&project_dir);
 
     let beats_path = base.join("beats.json");
@@ -228,7 +228,7 @@ fn load_beats(project_dir: String) -> Result<BeatsResponse, String> {
 }
 
 #[tauri::command]
-async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16, String> {
+pub(crate) async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16, String> {
     use crate::state::ViewerServerState;
 
     let port_handle = app.state::<AppState>().viewer_server_port.clone();
@@ -273,14 +273,14 @@ async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<u16,
 }
 
 #[tauri::command]
-fn cancel_pipeline(app: AppHandle) {
+pub(crate) fn cancel_pipeline(app: AppHandle) {
     if let Some(mut child) = app.state::<AppState>().child.lock().unwrap().take() {
         let _ = child.start_kill();
     }
 }
 
 #[tauri::command]
-fn list_projects() -> Result<Vec<ProjectInfo>, String> {
+pub(crate) fn list_projects() -> Result<Vec<ProjectInfo>, String> {
     let home = std::env::var("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_default();
@@ -355,7 +355,7 @@ fn list_projects() -> Result<Vec<ProjectInfo>, String> {
 }
 
 #[tauri::command]
-fn seed_demo_project() -> Result<bool, String> {
+pub(crate) fn seed_demo_project() -> Result<bool, String> {
     let home = std::env::var("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_default();

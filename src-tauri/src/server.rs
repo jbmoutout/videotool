@@ -11,7 +11,7 @@ use crate::state::ViewerServerState;
 const VIEWER_HTML: &str = include_str!("viewer.html");
 const VIEWER_CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
-pub fn find_video_file(base: &std::path::Path) -> Option<String> {
+pub(crate) fn find_video_file(base: &std::path::Path) -> Option<String> {
     let extensions = ["mp4", "mkv", "mov", "avi", "webm", "ts"];
     for ext in &extensions {
         let path = base.join(format!("source.{ext}"));
@@ -22,7 +22,7 @@ pub fn find_video_file(base: &std::path::Path) -> Option<String> {
     None
 }
 
-pub async fn serve_viewer_html() -> impl IntoResponse {
+pub(crate) async fn serve_viewer_html() -> impl IntoResponse {
     (
         StatusCode::OK,
         [
@@ -36,7 +36,7 @@ pub async fn serve_viewer_html() -> impl IntoResponse {
     )
 }
 
-pub async fn serve_beats_json(
+pub(crate) async fn serve_beats_json(
     AxumState(state): AxumState<ViewerServerState>,
 ) -> impl IntoResponse {
     let project_dir = state.project_dir.lock().unwrap().clone();
@@ -61,7 +61,7 @@ pub async fn serve_beats_json(
     }
 }
 
-pub async fn serve_video(
+pub(crate) async fn serve_video(
     AxumState(state): AxumState<ViewerServerState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {

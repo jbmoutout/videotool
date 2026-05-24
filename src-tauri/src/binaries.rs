@@ -46,7 +46,7 @@ fn find_bundled_binary(
     candidates.into_iter().map(|(_, path)| path).next()
 }
 
-pub fn resolve_cli_path(app: &AppHandle) -> Result<PathBuf, String> {
+pub(crate) fn resolve_cli_path(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(resource_path) = app.path().resource_dir() {
         let mut searched_dirs = Vec::new();
         let mut skip_name: Option<String> = None;
@@ -102,7 +102,7 @@ pub fn resolve_cli_path(app: &AppHandle) -> Result<PathBuf, String> {
     }
 }
 
-pub fn resolve_bundled_tool_path(app: &AppHandle, base_name: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_bundled_tool_path(app: &AppHandle, base_name: &str) -> Option<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Ok(resource_path) = app.path().resource_dir() {
         dirs.push(resource_path.clone());
