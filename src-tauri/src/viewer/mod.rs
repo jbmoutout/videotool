@@ -9,13 +9,14 @@ use std::sync::Arc;
 use tokio::io::{AsyncSeekExt, AsyncReadExt};
 use tokio_util::io::ReaderStream;
 
-use crate::models::{find_video_file, ViewerServerState};
+use crate::models::ViewerServerState;
+use crate::util::find_video_file;
 
 pub const VIEWER_CSP: &str = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 const VIEWER_HTML: &str = include_str!("viewer.html");
 
-pub async fn build_and_spawn(state: ViewerServerState) -> Result<u16, String> {
+pub async fn start_viewer_server(state: ViewerServerState) -> Result<u16, String> {
     let router = axum::Router::new()
         .route("/", axum::routing::get(serve_viewer_html))
         .route("/video", axum::routing::get(serve_video))

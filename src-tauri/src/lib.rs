@@ -1,6 +1,7 @@
 mod models;
 mod config;
 mod cli;
+mod util;
 mod viewer;
 mod commands;
 

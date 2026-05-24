@@ -6,6 +6,7 @@ use tokio::process::Command;
 use crate::cli;
 use crate::config;
 use crate::models::{self, AppState, BeatsFile, BeatsResponse, DoneMsg, ErrorMsg, ProgressMsg, ProjectInfo, TopicEntry, ViewerServerState};
+use crate::util;
 use crate::viewer;
 
 #[tauri::command]
@@ -211,7 +212,7 @@ pub fn load_beats(project_dir: String) -> Result<BeatsResponse, String> {
     let beats_file: BeatsFile = serde_json::from_str(&data)
         .map_err(|e| format!("Failed to parse beats.json: {e}"))?;
 
-    let video_path = models::find_video_file(base);
+    let video_path = util::find_video_file(base);
 
     let duration_seconds = base.join("meta.json")
         .exists()
@@ -245,7 +246,7 @@ pub async fn start_viewer_server(app: AppHandle, project_dir: String) -> Result<
         project_dir: shared_dir.clone(),
     };
 
-    let port = viewer::build_and_spawn(state).await?;
+    let port = viewer::start_viewer_server(state).await?;
 
     *port_handle.lock().unwrap() = Some(port);
 
